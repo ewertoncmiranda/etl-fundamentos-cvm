@@ -41,6 +41,9 @@ class RepositorioCadastro(Protocol):
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
         ...
 
+    def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
+        ...
+
 
 class RepositorioFatoContabil(Protocol):
     """Landing das contas cruas ja normalizadas."""
@@ -65,6 +68,10 @@ class RepositorioIndicador(Protocol):
     """Mart. Unico contrato de leitura para as aplicacoes."""
 
     def salvar(self, db: Any, indicadores: Sequence[Indicadores]) -> int:
+        ...
+
+    def conferir_acoes(self, db: Any, simbolos: Sequence[str]) -> list[str]:
+        """Corrige unidade/pico da quantidade de acoes na serie gravada."""
         ...
 
 

@@ -30,6 +30,7 @@ from app.dominio.modelo import (
     Ticker,
 )
 from app.dominio.texto import normalizar
+from app.excecoes.excecoes import FonteIndisponivel
 
 # Nome interno da demonstracao -> sufixo do arquivo da CVM
 SUFIXO_DEMONSTRACAO = {BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI"}
@@ -70,7 +71,18 @@ class FonteCvm:
     # --- pacotes -----------------------------------------------------------
 
     def assinatura(self, tipo: str, ano: int) -> Assinatura:
-        return self._cliente.assinatura(caminho_do_pacote(tipo, ano))
+        """Com a CVM fora do ar (ou limitando requisicoes) e o arquivo em
+        cache, segue com o cache em vez de abortar: assinatura sem ETag nunca
+        e "inalterada", entao o ETag antigo nao e sobrescrito por um falso."""
+        caminho = caminho_do_pacote(tipo, ano)
+        try:
+            return self._cliente.assinatura(caminho)
+        except FonteIndisponivel as erro:
+            nome = caminho.rsplit("/", 1)[-1]
+            if not self._cache.tem(nome):
+                raise
+            self._logger.warning("CVM indisponivel (%s); usando %s do cache", erro, nome)
+            return Assinatura(etag=None, last_modified=None, tamanho_bytes=None)
 
     def _conteudo(self, tipo: str, ano: int, forcar_download: bool = False) -> bytes:
         caminho = caminho_do_pacote(tipo, ano)
@@ -123,6 +135,35 @@ class FonteCvm:
                     cd_cvm=(linha.get("Codigo_CVM") or "").strip() or None,
                     setor=(linha.get("Setor_Atividade") or "").strip() or None,
                 )
+        return saida
+
+    # --- data de entrega (point-in-time) ------------------------------------
+
+    def datas_de_entrega(
+        self, tipo: str, ano: int, cnpjs: set[str]
+    ) -> dict[tuple[str, date, int], date]:
+        """(cnpj, dt_refer, versao) -> DT_RECEB, do arquivo-indice do pacote.
+
+        As demonstracoes nao trazem a data de entrega; so o indice
+        (dfp_cia_aberta_{ano}.csv / itr_cia_aberta_{ano}.csv) traz. Cada
+        versao tem a sua: uma reapresentacao so ficou publica na entrega dela.
+        """
+        arquivo = f"{tipo.lower()}_cia_aberta_{ano}.csv"
+        saida: dict[tuple[str, date, int], date] = {}
+        with self._leitor(tipo, ano) as leitor:
+            if not leitor.tem(arquivo):
+                self._logger.warning("%s %s sem indice de entregas (%s)", tipo, ano, arquivo)
+                return saida
+            for linha in leitor.linhas(arquivo):
+                cnpj = (linha.get("CNPJ_CIA") or "").strip()
+                if cnpj not in cnpjs:
+                    continue
+                try:
+                    referencia = datetime.strptime(linha["DT_REFER"].strip(), "%Y-%m-%d").date()
+                    recebido = datetime.strptime(linha["DT_RECEB"].strip(), "%Y-%m-%d").date()
+                except (KeyError, ValueError, AttributeError):
+                    continue
+                saida[(cnpj, referencia, _inteiro(linha.get("VERSAO")))] = recebido
         return saida
 
     # --- demonstracoes (DFP) ----------------------------------------------
@@ -302,6 +343,20 @@ class FonteCvm:
                     dt_refer=bruto["dt_refer"],
                     acoes_ex_tesouraria=total_dfp - tesouraria,
                     fonte="DFP",
+                )
+
+        # Os DFP ate 2019 nao trazem o arquivo de composicao do capital (a CVM
+        # passou a publica-lo em 2020); sem isto o LPA desses anos sai nulo e o
+        # backtest perde metade do periodo. O FRE do mesmo ano tem o total de
+        # acoes; a tesouraria fica sem desconto (em geral < 5% do capital), o
+        # que a `fonte` registra para quem ler a cobertura.
+        for cnpj, total_fre in fre.items():
+            if cnpj not in saida and total_fre:
+                saida[cnpj] = ComposicaoCapital(
+                    cnpj=cnpj,
+                    dt_refer=date(ano, 12, 31),
+                    acoes_ex_tesouraria=total_fre,
+                    fonte="FRE_SEM_TESOURARIA",
                 )
         return saida
 

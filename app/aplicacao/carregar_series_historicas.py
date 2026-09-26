@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from logging import Logger
 
+from app.dominio.identidade import codigos_negociados
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO
 from app.portas.fonte_series import FonteDeSeries
 from app.portas.repositorios import RepositorioExecucao, RepositorioSeries, RepositorioUniverso
@@ -26,6 +27,7 @@ class CarregarSeriesHistoricas:
         repositorio_series: RepositorioSeries,
         repositorio_execucao: RepositorioExecucao,
         logger: Logger,
+        repositorio_identidade=None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -33,15 +35,23 @@ class CarregarSeriesHistoricas:
         self._series = repositorio_series
         self._execucao = repositorio_execucao
         self._logger = logger
+        self._identidade = repositorio_identidade
 
     def executar(
-        self, anos: list[int], simbolos_pedidos: list[str] | None = None
+        self,
+        anos: list[int],
+        simbolos_pedidos: list[str] | None = None,
+        forcar: bool = False,
     ) -> ResultadoSeries:
         resultado = ResultadoSeries()
         simbolos = self._resolver_universo(simbolos_pedidos)
         if not simbolos:
             self._logger.warning("Nenhum ativo monitorado para carregar do COTAHIST.")
             return resultado
+        if self._identidade is not None:
+            with self._uow.transacao() as db:
+                simbolos = sorted(codigos_negociados(simbolos, self._identidade.identidades(db)))
+        self._logger.info("COTAHIST: %d codigos (com os antigos) - %s", len(simbolos), simbolos)
 
         for ano in sorted(anos):
             arquivo = f"COTAHIST_A{ano}.ZIP"
@@ -50,7 +60,7 @@ class CarregarSeriesHistoricas:
                 etag_anterior = self._execucao.etag_da_ultima_execucao(
                     db, FONTE_COTAHIST, str(ano), arquivo
                 )
-            if assinatura.inalterado_em_relacao_a(etag_anterior):
+            if not forcar and assinatura.inalterado_em_relacao_a(etag_anterior):
                 with self._uow.transacao() as db:
                     self._execucao.registrar(
                         db, FONTE_COTAHIST, str(ano), arquivo, STATUS_PULADO,
@@ -61,7 +71,9 @@ class CarregarSeriesHistoricas:
                 resultado.anos_pulados.append(ano)
                 continue
 
-            candles = self._fonte.candles(ano, set(simbolos))
+            from datetime import date
+
+            candles = self._fonte.candles(ano, set(simbolos), usar_cache=ano < date.today().year)
             with self._uow.transacao() as db:
                 gravados = self._series.salvar_candles_b3(db, candles)
                 self._execucao.registrar(

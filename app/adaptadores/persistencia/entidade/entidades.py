@@ -123,6 +123,7 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
     periodo: Mapped[Date] = mapped_column(Date, nullable=False)
     tipo_periodo: Mapped[str] = mapped_column(String(12), nullable=False, default="ANUAL")
+    data_entrega: Mapped[Date | None] = mapped_column(Date)
 
     lucro_liquido: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     patrimonio_liquido: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
@@ -214,3 +215,23 @@ class SerieHistoricaEntity(MixinCarimbo, Base):
     volume: Mapped[int | None] = mapped_column(BigInteger)
     fonte: Mapped[str] = mapped_column(String(30), nullable=False, default="B3")
     detalhes_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class CotacaoB3DiariaEntity(MixinCarimbo, Base):
+    """COTAHIST oficial da B3, codigo como negociado no dia (infra V6)."""
+
+    __tablename__ = "cotacao_b3_diaria"
+    __table_args__ = (
+        UniqueConstraint("simbolo", "data_pregao", name="uq_cotacao_b3_diaria"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    simbolo: Mapped[str] = mapped_column(String(12), nullable=False)
+    data_pregao: Mapped[Date] = mapped_column(Date, nullable=False)
+    abertura: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    maxima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    minima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    fechamento: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    numero_negocios: Mapped[int | None] = mapped_column(Integer)
+    volume_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(22, 2))
