@@ -1,0 +1,18 @@
+# Nada de segredo nem de cache na imagem publicada - o repo irmao publica
+# .env.local no Docker Hub por falta deste arquivo (gerar-insights#ISS-04).
+.git
+.github
+.venv
+venv-local
+env/
+.env
+.env.*
+cache/
+prototipo/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+.idea
