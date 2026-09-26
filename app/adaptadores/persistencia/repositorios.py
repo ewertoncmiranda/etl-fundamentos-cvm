@@ -39,8 +39,8 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
-from app.dominio.texto import normalizar
 from app.dominio.serie_historica import CandleB3
+from app.dominio.texto import normalizar
 
 # Grava em blocos para nao montar um INSERT gigante nem estourar max_allowed_packet
 TAMANHO_DO_LOTE = 500

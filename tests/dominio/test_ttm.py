@@ -3,7 +3,14 @@ from decimal import Decimal
 
 import pytest
 
-from app.dominio.modelo import BPA, DRE, TIPO_DOC_DFP, TIPO_DOC_ITR, DocumentoContabil, LinhaContabil
+from app.dominio.modelo import (
+    BPA,
+    DRE,
+    TIPO_DOC_DFP,
+    TIPO_DOC_ITR,
+    DocumentoContabil,
+    LinhaContabil,
+)
 from app.dominio.ttm import MontadorTtm
 
 

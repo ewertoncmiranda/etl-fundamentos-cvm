@@ -34,7 +34,9 @@ class CarregarSeriesHistoricas:
         self._execucao = repositorio_execucao
         self._logger = logger
 
-    def executar(self, anos: list[int], simbolos_pedidos: list[str] | None = None) -> ResultadoSeries:
+    def executar(
+        self, anos: list[int], simbolos_pedidos: list[str] | None = None
+    ) -> ResultadoSeries:
         resultado = ResultadoSeries()
         simbolos = self._resolver_universo(simbolos_pedidos)
         if not simbolos:

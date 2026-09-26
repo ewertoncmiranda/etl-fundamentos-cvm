@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from logging import Logger
 
-from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO, DocumentoContabil, Empresa, Ticker
+from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO, DocumentoContabil, Empresa
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.ttm import MontadorTtm
 from app.portas.fonte_documentos import FonteDeDocumentos
