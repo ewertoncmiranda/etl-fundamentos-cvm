@@ -115,6 +115,7 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | REQ-06 | Carregar ITR e derivar TTM | IMPLEMENTADO (2026-09-26) |
 | REQ-08 | Carregar série diária bruta do COTAHIST/B3 apenas para ativos monitorados | IMPLEMENTADO (2026-09-26) |
 | REQ-07 | Suportar plano de contas de seguradora | PARCIAL (código existe, não exercitado) |
+| REQ-09 | Carregar comunicados oficiais da base IPE (`--comunicados`) para os tickers com CNPJ em `cvm_ticker`, gravar em `comunicado_cvm` (`infra#CTR-08`) e publicar `sqs-comunicados-publicados` (`infra#CTR-09`) só com o que é novo | IMPLEMENTADO (2026-09-26) |
 
 | ID | Não funcional | Status |
 |---|---|---|
@@ -130,6 +131,18 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 
 **REQ-04** — Dado um banco (plano FINANCEIRO); Quando os indicadores forem montados; Então `margem_liquida` e `roic` são nulos e `cobertura_json` explica que `3.05` no banco não é EBIT.
 
+**REQ-09** — Dado o universo monitorado e o IPE de 2026; Quando `--comunicados` rodar; Então PETR4 tem 93 documentos `FATO_RELEVANTE` + `COMUNICADO_MERCADO` entregues em 2026 (conferido contra o CSV em 2026-09-26). Dado que a carga já rodou; Quando rodar de novo com o mesmo ETag; Então os anos saem `PULADO` e nenhum evento é publicado. Com `--forcar` e o mesmo arquivo, `gravados=0`.
+
+### 6.2 Comunicados (base IPE)
+
+- **Fonte:** `IPE/DADOS/ipe_cia_aberta_{ano}.zip`, um CSV latin-1 com todo documento eventual entregue à CVM. Republicado ~1x/semana; o ETag decide se processa.
+- **Anos:** o atual e o anterior, por padrão (`--ano` sobrescreve).
+- **Categorias padrão:** `FATO_RELEVANTE`, `COMUNICADO_MERCADO`, `AVISO_ACIONISTAS`, `PROVENTOS`, `CALENDARIO_EVENTOS`, `RESULTADOS`. `ASSEMBLEIA` só com `--categoria ASSEMBLEIA` (6,6 mil documentos/ano, quase tudo rotina). O resto (regimentos, políticas) vira `OUTROS` e não é carregado.
+- **Identidade:** `numProtocolo` do link de download. `Protocolo_Entrega` vem vazio nos relatórios automáticos de proventos e se repete em linhas duplicadas; a base traz só a versão vigente, e a maior `Versao` vence.
+- **CNPJ vem de `cvm_ticker`:** ticker sem carga de fundamentos não tem comunicado (log `Sem CNPJ em cvm_ticker`).
+- **`--forcar`:** ignora o ETag. Use quando o universo ou as categorias mudarem; `--simbolo` explícito já força.
+- **Não copia conteúdo:** só metadados e o link oficial do RAD.
+
 ---
 
 ## 7. Decisões
@@ -142,6 +155,8 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | DEC-E04 | Gravar P/L e P/VP? | **Não.** Derivados na leitura pelo `gestor`, senão nascem obsoletos |
 | DEC-E05 | Quem cria as tabelas? | `infra-b3-ecossytem/mysql-init`. Este app não faz DDL. Herda `infra#DEC-01`, que segue ABERTO |
 | DEC-E06 | Carregar todas as companhias ou só as monitoradas? | **Só as monitoradas.** Um lugar só para escolher ativo |
+| DEC-E07 | Chave dos comunicados | **`numProtocolo` do link**, não `Protocolo_Entrega` (vazio em 501 linhas de 2026). Tabela guarda CNPJ; ticker na leitura |
+| DEC-E08 | Comunicados: onde descobrir o CNPJ do ticker | **`cvm_ticker`** (mantida pela carga de fundamentos), em vez de baixar o FCA de novo |
 
 ---
 
@@ -169,6 +184,8 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | TASK-E04 | Expor série histórica de indicadores | — | ABERTO |
 | TASK-E05 | Integrar proventos (dividendos, JCP) da B3 | — | ABERTO |
 | TASK-E06 | Fixar convenção de ROIC e documentá-la | ISS-E03 | ABERTO |
+| TASK-E08 | Carga de comunicados da base IPE com ETag, dedupe por protocolo, upsert por versão e evento por ticker | REQ-09 | CONCLUIDO (2026-09-26) |
+| TASK-E09 | Agendar `--comunicados` diariamente (cron do host ou GitHub Actions); sem novidade custa 2 HEAD | REQ-09 | ABERTO |
 
 ---
 
@@ -181,6 +198,7 @@ mypy app
 pytest -m externo -s              # confronto com o Fundamentus, sob demanda
 
 docker compose --profile etl run --rm etl-fundamentos-cvm
+docker compose --profile etl run --rm etl-fundamentos-cvm --comunicados
 ```
 
 Regressão de referência (WEGE3, DFP 2025): LPA 1,5197 · VPA 4,1512 · ROE 36,61% · margem 16,61% · dívida líquida −1,71 bi.

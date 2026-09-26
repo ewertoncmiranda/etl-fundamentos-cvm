@@ -1,4 +1,7 @@
-"""Publica na fila sqs-fundamentos-atualizados.
+"""Publica eventos de carga no SQS.
+
+Uma instancia por fila: sqs-fundamentos-atualizados (fundamentos) ou
+sqs-comunicados-publicados (comunicados da base IPE).
 
 Falha em publicar nao derruba a carga: o dado ja esta no banco e o consumidor
 pode ler de la. Por isso o erro e registrado e engolido de proposito.
@@ -46,3 +49,26 @@ class PublicadorSqs:
         except Exception as erro:
             # O dado ja esta no banco; o evento e so uma notificacao.
             self._logger.error("Falha ao publicar evento (dado ja persistido): %s", erro)
+
+    def publicar_comunicados(self, eventos: Sequence[dict]) -> None:
+        if not eventos:
+            return
+
+        url = self._garantir_fila()
+        if not url:
+            return
+
+        publicados = 0
+        for evento in eventos:
+            try:
+                self._cliente.send_message(
+                    QueueUrl=url, MessageBody=json.dumps(evento, default=str)
+                )
+                publicados += 1
+            except Exception as erro:
+                self._logger.error(
+                    "Falha ao publicar comunicados de %s (dado ja persistido): %s",
+                    evento.get("simbolo"),
+                    erro,
+                )
+        self._logger.info("Publicados eventos de comunicados para %d ticker(s)", publicados)

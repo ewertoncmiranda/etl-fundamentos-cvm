@@ -12,10 +12,12 @@ from app.adaptadores.b3.leitor_cotahist import LeitorCotahist
 from app.adaptadores.cvm.cache_local import CacheDeArquivos
 from app.adaptadores.cvm.cliente_http import ClienteHttpCvm
 from app.adaptadores.cvm.fonte_cvm import FonteCvm
+from app.adaptadores.cvm.fonte_ipe import FonteIpe
 from app.adaptadores.cvm.normalizador import NormalizadorDeLinhas
 from app.adaptadores.mensageria.publicador_sqs import PublicadorSqs
 from app.adaptadores.persistencia.repositorios import (
     RepositorioCadastroSql,
+    RepositorioComunicadoSql,
     RepositorioExecucaoSql,
     RepositorioFatoContabilSql,
     RepositorioIndicadorSql,
@@ -24,6 +26,7 @@ from app.adaptadores.persistencia.repositorios import (
 )
 from app.adaptadores.persistencia.unidade_de_trabalho import UnidadeDeTrabalho
 from app.adaptadores.persistencia.verificador_schema import VerificadorDeSchema
+from app.aplicacao.carregar_comunicados import CarregarComunicados
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
 from app.aplicacao.carregar_series_historicas import CarregarSeriesHistoricas
 from app.aplicacao.carregar_ttm import CarregarTtm
@@ -86,6 +89,30 @@ def montar_carga_ttm(settings: Settings, logger: Logger) -> CarregarTtm:
     )
 
 
+def montar_carga_de_comunicados(settings: Settings, logger: Logger) -> CarregarComunicados:
+    banco = _montar_banco(settings, logger)
+    return CarregarComunicados(
+        fonte=FonteIpe(
+            cliente=ClienteHttpCvm(settings.cvm_base_url, logger, settings.http_timeout),
+            cache=CacheDeArquivos(settings.cvm_cache_dir),
+            logger=logger,
+        ),
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio_universo=RepositorioUniversoSql(),
+        consulta_de_tickers=RepositorioCadastroSql(),
+        repositorio_comunicado=RepositorioComunicadoSql(),
+        repositorio_execucao=RepositorioExecucaoSql(logger),
+        # So o que esta carga le e escreve: comunicados nao dependem das
+        # tabelas contabeis, e exigi-las aqui bloquearia sem motivo.
+        verificador_de_schema=VerificadorDeSchema(
+            ("ativo_monitorado", "cvm_ticker", "etl_execucao", "comunicado_cvm")
+        ),
+        nome_do_banco=settings.db_name,
+        publicador=_montar_publicador(settings, logger, settings.fila_comunicados),
+        logger=logger,
+    )
+
+
 def _montar_banco(settings: Settings, logger: Logger) -> ConfiguracaoDeBanco:
     banco = ConfiguracaoDeBanco(
         settings.database_url, logger, f"{settings.db_host}:{settings.db_port}"
@@ -111,7 +138,9 @@ def _montar_indicadores() -> MontadorDeIndicadores:
     )
 
 
-def _montar_publicador(settings: Settings, logger: Logger) -> PublicadorSqs:
+def _montar_publicador(
+    settings: Settings, logger: Logger, nome_da_fila: str | None = None
+) -> PublicadorSqs:
     cliente = boto3.client(
         "sqs",
         endpoint_url=settings.localstack_endpoint,
@@ -119,4 +148,4 @@ def _montar_publicador(settings: Settings, logger: Logger) -> PublicadorSqs:
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
     )
-    return PublicadorSqs(cliente, settings.fila_fundamentos, logger)
+    return PublicadorSqs(cliente, nome_da_fila or settings.fila_fundamentos, logger)

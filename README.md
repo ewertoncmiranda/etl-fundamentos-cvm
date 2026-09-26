@@ -93,6 +93,17 @@ Tudo por variável de ambiente; veja `.env.example`. As que importam:
 | `CVM_CACHE_DIR` | `./cache` (local), `/var/cache/cvm` (container) | Onde os ZIPs ficam |
 | `DB_*` | MySQL do ecossistema | Destino |
 | `FUNDAMENTOS_QUEUE_NAME` | `sqs-fundamentos-atualizados` | Evento de carga concluída |
+| `COMUNICADOS_QUEUE_NAME` | `sqs-comunicados-publicados` | Evento de comunicados novos (`--comunicados`) |
+
+## Comunicados oficiais (base IPE)
+
+```bash
+python main.py --comunicados                          # ano atual e anterior, categorias padrão
+python main.py --comunicados --categoria ASSEMBLEIA   # inclui atas e editais
+python main.py --comunicados --forcar                 # ignora o ETag (universo mudou)
+```
+
+Carrega fatos relevantes, comunicados ao mercado, avisos aos acionistas, proventos, calendário de eventos e divulgação de resultados da base IPE da CVM em `comunicado_cvm`. Só metadados e o link oficial do documento: o conteúdo não é copiado. O CNPJ de cada ticker vem de `cvm_ticker`, então rode a carga de fundamentos antes. Regras em `SPEC.md` § 6.2.
 
 ## Desenvolvimento
 

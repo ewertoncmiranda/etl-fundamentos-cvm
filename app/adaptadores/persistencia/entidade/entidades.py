@@ -171,6 +171,30 @@ class ExecucaoEntity(Base):
     finalizado_em: Mapped[DateTime | None] = mapped_column(DateTime)
 
 
+class ComunicadoCvmEntity(MixinCarimbo, Base):
+    """Espelho de comunicado_cvm (mysql-migrations/V3__comunicados_cvm.sql)."""
+
+    __tablename__ = "comunicado_cvm"
+    __table_args__ = (
+        UniqueConstraint("protocolo_cvm", name="uq_comunicado_cvm_protocolo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    protocolo_cvm: Mapped[str] = mapped_column(String(20), nullable=False)
+    protocolo_entrega: Mapped[str | None] = mapped_column(String(40))
+    versao: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
+    codigo_cvm: Mapped[str | None] = mapped_column(String(10))
+    categoria: Mapped[str] = mapped_column(String(40), nullable=False)
+    categoria_original: Mapped[str] = mapped_column(String(200), nullable=False)
+    tipo: Mapped[str | None] = mapped_column(String(120))
+    especie: Mapped[str | None] = mapped_column(String(120))
+    assunto: Mapped[str | None] = mapped_column(Text)
+    data_referencia: Mapped[Date | None] = mapped_column(Date)
+    data_entrega: Mapped[Date] = mapped_column(Date, nullable=False)
+    link_download: Mapped[str] = mapped_column(String(300), nullable=False)
+
+
 class SerieHistoricaEntity(MixinCarimbo, Base):
     __tablename__ = "serie_historica"
     __table_args__ = (
