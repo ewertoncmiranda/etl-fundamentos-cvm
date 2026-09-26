@@ -28,6 +28,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
+    SerieHistoricaEntity,
     TickerEntity,
 )
 from app.dominio.modelo import (
@@ -39,6 +40,7 @@ from app.dominio.modelo import (
     Ticker,
 )
 from app.dominio.texto import normalizar
+from app.dominio.serie_historica import CandleB3
 
 # Grava em blocos para nao montar um INSERT gigante nem estourar max_allowed_packet
 TAMANHO_DO_LOTE = 500
@@ -238,6 +240,40 @@ class RepositorioIndicadorSql:
             for i in indicadores
         ]
         return _upsert(db, IndicadorFundamentalistaEntity, registros, self.COLUNAS_ATUALIZAVEIS)
+
+
+class RepositorioSeriesSql:
+    def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
+        registros = [
+            {
+                "simbolo": candle.simbolo,
+                "data_pregao": candle.data_pregao,
+                "intervalo": "1d",
+                "range_usado": "1y",
+                "abertura": candle.abertura,
+                "maxima": candle.maxima,
+                "minima": candle.minima,
+                "fechamento": candle.fechamento,
+                "fechamento_ajustado": None,
+                "volume": candle.volume,
+                "fonte": "B3",
+                "detalhes_json": {
+                    "preco_ajustado": False,
+                    "numero_negocios": candle.numero_negocios,
+                    "volume_financeiro": str(candle.volume_financeiro),
+                },
+            }
+            for candle in candles
+        ]
+        return _upsert(
+            db,
+            SerieHistoricaEntity,
+            registros,
+            (
+                "range_usado", "abertura", "maxima", "minima", "fechamento",
+                "fechamento_ajustado", "volume", "fonte", "detalhes_json",
+            ),
+        )
 
 
 class RepositorioExecucaoSql:

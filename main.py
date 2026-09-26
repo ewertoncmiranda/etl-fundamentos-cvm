@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app.config.composicao import montar_caso_de_uso
+from app.config.composicao import montar_carga_de_series, montar_carga_ttm, montar_caso_de_uso
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
 
@@ -26,6 +26,16 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         action="append",
         dest="anos",
         help="ano a carregar; repetivel. Padrao: CVM_ANOS",
+    )
+    parser.add_argument(
+        "--cotahist",
+        action="store_true",
+        help="carrega serie historica anual bruta da B3 em vez dos fundamentos CVM",
+    )
+    parser.add_argument(
+        "--ttm",
+        action="store_true",
+        help="deriva os ultimos doze meses combinando DFP e ITR acumulados",
     )
     parser.add_argument(
         "--simbolo",
@@ -56,6 +66,28 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
+        if argumentos.cotahist:
+            resultado_series = montar_carga_de_series(settings, logger).executar(
+                anos, argumentos.simbolos
+            )
+            logger.info(
+                "Carga COTAHIST concluida | processados=%s | pulados=%s | candles=%d",
+                resultado_series.anos_processados,
+                resultado_series.anos_pulados,
+                resultado_series.candles_gravados,
+            )
+            return 0
+        if argumentos.ttm:
+            resultado_ttm = montar_carga_ttm(settings, logger).executar(
+                anos, argumentos.simbolos
+            )
+            logger.info(
+                "Carga TTM concluida | processados=%s | pulados=%s | indicadores=%d",
+                resultado_ttm.anos_processados,
+                resultado_ttm.anos_pulados,
+                resultado_ttm.indicadores_gravados,
+            )
+            return 0
         caso_de_uso = montar_caso_de_uso(settings, logger)
         resultado = caso_de_uso.executar(anos, argumentos.simbolos)
     except Exception as erro:

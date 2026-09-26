@@ -81,6 +81,8 @@ class Settings:
 
     cvm_base_url: str = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
     cvm_cache_dir: Path = Path("./cache")
+    b3_base_url: str = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist"
+    b3_cache_dir: Path = Path("./cache/b3")
     anos: list[int] = field(default_factory=list)
 
     log_level: str = "INFO"
@@ -127,6 +129,12 @@ class Settings:
             ),
             cvm_cache_dir=Path(
                 os.getenv("CVM_CACHE_DIR", "/var/cache/cvm" if em_conteiner else "./cache")
+            ),
+            b3_base_url=os.getenv(
+                "B3_BASE_URL", "https://bvmf.bmfbovespa.com.br/InstDados/SerHist"
+            ),
+            b3_cache_dir=Path(
+                os.getenv("B3_CACHE_DIR", "/var/cache/b3" if em_conteiner else "./cache/b3")
             ),
             anos=_anos(os.getenv("CVM_ANOS", "2024-2025")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),

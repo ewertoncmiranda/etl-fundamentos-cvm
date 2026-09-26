@@ -21,6 +21,7 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
+from app.dominio.serie_historica import CandleB3
 
 
 class RepositorioUniverso(Protocol):
@@ -63,6 +64,11 @@ class RepositorioIndicador(Protocol):
     """Mart. Unico contrato de leitura para as aplicacoes."""
 
     def salvar(self, db: Any, indicadores: Sequence[Indicadores]) -> int:
+        ...
+
+
+class RepositorioSeries(Protocol):
+    def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
         ...
 
 

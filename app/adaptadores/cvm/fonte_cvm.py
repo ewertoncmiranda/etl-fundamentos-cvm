@@ -23,6 +23,7 @@ from app.dominio.modelo import (
     GRUPO_CONSOLIDADO,
     GRUPO_INDIVIDUAL,
     TIPO_DOC_DFP,
+    TIPO_DOC_ITR,
     ComposicaoCapital,
     DocumentoContabil,
     Empresa,
@@ -36,6 +37,7 @@ SUFIXO_DEMONSTRACAO = {BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI"}
 PACOTE_DFP = "DFP"
 PACOTE_FCA = "FCA"
 PACOTE_FRE = "FRE"
+PACOTE_ITR = "ITR"
 
 # Divergencia entre FRE e DFP nesta faixa significa unidade diferente
 # (milhares x unidades), nao emissao de acoes entre as datas.
@@ -47,6 +49,7 @@ def caminho_do_pacote(tipo: str, ano: int) -> str:
         PACOTE_DFP: f"dfp_cia_aberta_{ano}.zip",
         PACOTE_FCA: f"fca_cia_aberta_{ano}.zip",
         PACOTE_FRE: f"fre_cia_aberta_{ano}.zip",
+        PACOTE_ITR: f"itr_cia_aberta_{ano}.zip",
     }[tipo]
     return f"{tipo}/DADOS/{nome}"
 
@@ -189,6 +192,71 @@ class FonteCvm:
                     registro["dt_fim_exerc"] = convertida.dt_fim_exerc
 
         return {cnpj: dados for cnpj, dados in acumulado.items() if dados["linhas"]}
+
+    def documentos_itr(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
+        consolidado = self._demonstracoes_itr(ano, cnpjs, GRUPO_CONSOLIDADO)
+        cnpjs_com_consolidado = {cnpj for cnpj, _ in consolidado}
+        individual = self._demonstracoes_itr(
+            ano, cnpjs - cnpjs_com_consolidado, GRUPO_INDIVIDUAL
+        )
+        for grupo, mapa in ((GRUPO_CONSOLIDADO, consolidado), (GRUPO_INDIVIDUAL, individual)):
+            for (cnpj, _), dados in sorted(mapa.items(), key=lambda item: item[0][1]):
+                yield DocumentoContabil(
+                    cnpj=cnpj,
+                    tipo_doc=TIPO_DOC_ITR,
+                    grupo=grupo,
+                    versao=dados["versao"],
+                    dt_refer=dados["dt_refer"],
+                    dt_fim_exerc=dados["dt_fim_exerc"],
+                    linhas={k: tuple(v) for k, v in dados["linhas"].items()},
+                )
+
+    def _demonstracoes_itr(
+        self, ano: int, cnpjs: set[str], grupo: str
+    ) -> dict[tuple[str, date], dict]:
+        acumulado: dict[tuple[str, date], dict] = {}
+        if not cnpjs:
+            return acumulado
+        with self._leitor(PACOTE_ITR, ano) as leitor:
+            for demonstracao, sufixo in SUFIXO_DEMONSTRACAO.items():
+                arquivo = f"itr_cia_aberta_{sufixo}_{grupo}_{ano}.csv"
+                if not leitor.tem(arquivo):
+                    continue
+                for linha_crua in leitor.linhas(arquivo):
+                    cnpj = (linha_crua.get("CNPJ_CIA") or "").strip()
+                    if cnpj not in cnpjs:
+                        continue
+                    convertida = self._normalizador.converter(linha_crua, demonstracao)
+                    if convertida is None:
+                        continue
+                    referencia = _data_ou_hoje(linha_crua.get("DT_REFER"))
+                    # DRE do ITR pode trazer no mesmo arquivo o trimestre isolado
+                    # e o acumulado no ano. TTM usa o acumulado iniciado em 1º/1;
+                    # misturar os dois produz contas duplicadas e um resultado
+                    # silenciosamente errado.
+                    if (
+                        demonstracao in (DRE, DFC_MI)
+                        and convertida.dt_ini_exerc != date(referencia.year, 1, 1)
+                    ):
+                        continue
+                    chave = (cnpj, referencia)
+                    versao = self._normalizador.versao(linha_crua)
+                    registro = acumulado.setdefault(
+                        chave,
+                        {
+                            "versao": -1,
+                            "dt_refer": referencia,
+                            "dt_fim_exerc": convertida.dt_fim_exerc,
+                            "linhas": {},
+                        },
+                    )
+                    if versao < registro["versao"]:
+                        continue
+                    if versao > registro["versao"]:
+                        registro["versao"] = versao
+                        registro["linhas"] = {}
+                    registro["linhas"].setdefault(demonstracao, []).append(convertida)
+        return {chave: dados for chave, dados in acumulado.items() if dados["linhas"]}
 
     # --- quantidade de acoes (DFP + FRE) ----------------------------------
 

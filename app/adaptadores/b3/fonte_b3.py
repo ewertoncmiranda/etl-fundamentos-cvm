@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from app.adaptadores.b3.cliente_http_b3 import ClienteHttpB3
+from app.adaptadores.b3.leitor_cotahist import LeitorCotahist
+from app.adaptadores.cvm.cache_local import CacheDeArquivos
+from app.adaptadores.cvm.cliente_http import Assinatura
+from app.dominio.serie_historica import CandleB3
+
+
+class FonteB3:
+    def __init__(self, cliente: ClienteHttpB3, cache: CacheDeArquivos, leitor: LeitorCotahist):
+        self._cliente = cliente
+        self._cache = cache
+        self._leitor = leitor
+
+    @staticmethod
+    def caminho(ano: int) -> str:
+        return f"COTAHIST_A{ano}.ZIP"
+
+    def assinatura(self, ano: int) -> Assinatura:
+        return self._cliente.assinatura(self.caminho(ano))
+
+    def candles(self, ano: int, simbolos: set[str]) -> list[CandleB3]:
+        nome = self.caminho(ano)
+        conteudo = self._cliente.baixar(nome)
+        self._cache.gravar(nome, conteudo)
+        return self._leitor.ler_zip(conteudo, simbolos)

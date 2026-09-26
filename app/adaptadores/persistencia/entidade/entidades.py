@@ -169,3 +169,24 @@ class ExecucaoEntity(Base):
         DateTime, server_default=func.now(), nullable=False
     )
     finalizado_em: Mapped[DateTime | None] = mapped_column(DateTime)
+
+
+class SerieHistoricaEntity(MixinCarimbo, Base):
+    __tablename__ = "serie_historica"
+    __table_args__ = (
+        UniqueConstraint("simbolo", "data_pregao", "intervalo", name="uq_serie_historica_dia"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    simbolo: Mapped[str] = mapped_column(String(10), nullable=False)
+    data_pregao: Mapped[Date] = mapped_column(Date, nullable=False)
+    intervalo: Mapped[str] = mapped_column(String(10), nullable=False, default="1d")
+    range_usado: Mapped[str | None] = mapped_column(String(10))
+    abertura: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    maxima: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    minima: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    fechamento: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    fechamento_ajustado: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    fonte: Mapped[str] = mapped_column(String(30), nullable=False, default="B3")
+    detalhes_json: Mapped[dict | None] = mapped_column(JSON)

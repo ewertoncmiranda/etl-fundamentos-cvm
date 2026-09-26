@@ -51,6 +51,10 @@ class FonteDeDocumentos(Protocol):
         """As demonstracoes das companhias pedidas, ja normalizadas."""
         ...
 
+    def documentos_itr(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
+        """ITRs do ano, preservando cada data de referência."""
+        ...
+
     def composicoes_de_capital(self, ano: int, cnpjs: set[str]) -> dict[str, ComposicaoCapital]:
         """cnpj -> quantidade de acoes ex-tesouraria, com a unidade ja corrigida."""
         ...

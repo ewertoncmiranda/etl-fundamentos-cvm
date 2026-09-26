@@ -12,6 +12,7 @@ from decimal import Decimal
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
 from app.dominio.modelo import (
     TIPO_DOC_DFP,
+    TIPO_DOC_TTM,
     ComposicaoCapital,
     DocumentoContabil,
     Indicadores,
@@ -26,6 +27,7 @@ from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
 
 TIPO_PERIODO_ANUAL = "ANUAL"
 TIPO_PERIODO_TRIMESTRAL = "TRIMESTRAL"
+TIPO_PERIODO_TTM = "TTM"
 
 
 class MontadorDeIndicadores:
@@ -88,11 +90,9 @@ class MontadorDeIndicadores:
             simbolo=simbolo,
             cnpj=documento.cnpj,
             periodo=documento.dt_fim_exerc,
-            tipo_periodo=(
-                TIPO_PERIODO_ANUAL
-                if documento.tipo_doc == TIPO_DOC_DFP
-                else TIPO_PERIODO_TRIMESTRAL
-            ),
+            tipo_periodo=(TIPO_PERIODO_ANUAL if documento.tipo_doc == TIPO_DOC_DFP else
+                          TIPO_PERIODO_TTM if documento.tipo_doc == TIPO_DOC_TTM else
+                          TIPO_PERIODO_TRIMESTRAL),
             tipo_doc=documento.tipo_doc,
             grupo=documento.grupo,
             versao_cvm=documento.versao,

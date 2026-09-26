@@ -112,7 +112,8 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | REQ-03 | Pular download quando o ETag da CVM não mudou | IMPLEMENTADO |
 | REQ-04 | Declarar métrica ausente com a razão | IMPLEMENTADO |
 | REQ-05 | Publicar evento de fundamentos atualizados | IMPLEMENTADO |
-| REQ-06 | Carregar ITR e derivar TTM | PLANEJADO (`TASK-E01`) |
+| REQ-06 | Carregar ITR e derivar TTM | IMPLEMENTADO (2026-09-26) |
+| REQ-08 | Carregar série diária bruta do COTAHIST/B3 apenas para ativos monitorados | IMPLEMENTADO (2026-09-26) |
 | REQ-07 | Suportar plano de contas de seguradora | PARCIAL (código existe, não exercitado) |
 
 | ID | Não funcional | Status |
@@ -148,7 +149,7 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 
 | ID | Sev. | Problema | Status |
 |---|---|---|---|
-| ISS-E01 | Alto | Sem TTM: só exercício fechado. Trocar a base do LPA move o número 40%+ em empresa volátil, então o Graham **não** deve consumir estes dados ainda | ABERTO |
+| ISS-E01 | Alto | Sem TTM: só exercício fechado. Trocar a base do LPA move o número 40%+ em empresa volátil, então o Graham **não** deve consumir estes dados ainda | CONCLUIDO (2026-09-26: DFP + ITR atual − ITR comparável) |
 | ISS-E02 | Médio | `capex` não é extraível (contas `6.02.xx` são texto livre). FCL usa investimento total como proxy | ABERTO |
 | ISS-E03 | Médio | ROIC usa alíquota nominal e definição própria de capital investido; diverge do Fundamentus (31,3% × 24,3% na WEG) | ABERTO |
 | ISS-E04 | Médio | `RENT3` diverge 43,8% do Fundamentus sem explicação; a DRE extraída fecha internamente | ABERTO |
@@ -161,7 +162,8 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 
 | ID | Tarefa | Depende | Status |
 |---|---|---|---|
-| TASK-E01 | Carregar ITR e derivar TTM (DRE do ITR é acumulada no ano; trimestre sai por subtração) | REQ-06 | ABERTO |
+| TASK-E01 | Carregar ITR e derivar TTM (DRE do ITR é acumulada no ano; trimestre sai por subtração) | REQ-06 | CONCLUIDO (2026-09-26) |
+| TASK-E07 | Ingerir COTAHIST anual com ETag, filtro de ativos monitorados e upsert em `serie_historica` | REQ-08 | CONCLUIDO (2026-09-26) |
 | TASK-E02 | Fixture de seguradora e validação do plano | ISS-E05 | ABERTO |
 | TASK-E03 | Investigar a divergência de `RENT3` | ISS-E04 | ABERTO |
 | TASK-E04 | Expor série histórica de indicadores | — | ABERTO |
