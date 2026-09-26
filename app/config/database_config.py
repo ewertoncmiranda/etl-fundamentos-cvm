@@ -16,13 +16,17 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config.settings import executando_em_container
 from app.excecoes.excecoes import ErroTransitorio
 
 
 class ConfiguracaoDeBanco:
-    def __init__(self, database_url: str, logger: Logger):
+    def __init__(self, database_url: str, logger: Logger, descricao: str = ""):
         self._url = database_url
         self._logger = logger
+        # host:port em texto, so para a mensagem de erro - a URL completa tem
+        # senha e nao pode ir para o log
+        self._descricao = descricao or "o banco configurado"
         self._engine: Engine | None = None
         self._fabrica: sessionmaker[Session] | None = None
 
@@ -46,9 +50,7 @@ class ConfiguracaoDeBanco:
                 return
             except OperationalError as erro:
                 if tentativa == tentativas:
-                    raise ErroTransitorio(
-                        f"MySQL nao respondeu apos {tentativas} tentativas: {erro}"
-                    ) from erro
+                    raise ErroTransitorio(self._diagnostico(tentativas, erro)) from erro
                 self._logger.warning(
                     "MySQL indisponivel (tentativa %d/%d); aguardando %ds",
                     tentativa,
@@ -56,6 +58,41 @@ class ConfiguracaoDeBanco:
                     intervalo,
                 )
                 time.sleep(intervalo)
+
+    def _diagnostico(self, tentativas: int, erro: Exception) -> str:
+        """Mensagem que diz o que corrigir, nao so que falhou.
+
+        O caso mais comum e a imagem rodada sem as variaveis de ambiente: os
+        defaults apontam para localhost, que dentro de um container e o
+        proprio container.
+        """
+        linhas = [
+            f"MySQL em {self._descricao} nao respondeu apos {tentativas} tentativas.",
+            f"Causa: {erro}",
+        ]
+
+        if executando_em_container() and "localhost" in self._descricao:
+            linhas += [
+                "",
+                "Dentro de um container, localhost e o proprio container - nunca",
+                "vai haver MySQL ai. Provavelmente a imagem foi executada sem as",
+                "variaveis de ambiente. Rode pelo compose:",
+                "",
+                "  docker compose --profile etl run --rm etl-fundamentos-cvm",
+                "",
+                "ou passe DB_HOST explicitamente:",
+                "",
+                "  docker run --rm --network <rede> -e DB_HOST=mysql \\",
+                "      ewertonmiranda/etl-fundamentos-cvm",
+            ]
+        elif executando_em_container():
+            linhas += [
+                "",
+                "Confira se o container esta na mesma rede do MySQL e se o servico",
+                "ja passou pelo healthcheck.",
+            ]
+
+        return "\n".join(linhas)
 
     @property
     def fabrica_de_sessao(self):

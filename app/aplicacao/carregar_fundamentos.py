@@ -49,6 +49,8 @@ class CarregarFundamentos:
         repositorio_fato: RepositorioFatoContabil,
         repositorio_indicador: RepositorioIndicador,
         repositorio_execucao: RepositorioExecucao,
+        verificador_de_schema,
+        nome_do_banco: str,
         montador: MontadorDeIndicadores,
         publicador: PublicadorDeEventos,
         logger: Logger,
@@ -60,6 +62,8 @@ class CarregarFundamentos:
         self._fato = repositorio_fato
         self._indicador = repositorio_indicador
         self._execucao = repositorio_execucao
+        self._verificador = verificador_de_schema
+        self._nome_do_banco = nome_do_banco
         self._montador = montador
         self._publicador = publicador
         self._logger = logger
@@ -68,6 +72,10 @@ class CarregarFundamentos:
         self, anos: list[int], simbolos_pedidos: list[str] | None = None
     ) -> ResultadoDaCarga:
         resultado = ResultadoDaCarga()
+
+        # Falha cedo e com instrucao, em vez de estourar no primeiro INSERT
+        with self._uow.transacao() as db:
+            self._verificador.conferir(db, self._nome_do_banco)
 
         simbolos = self._resolver_universo(simbolos_pedidos)
         if not simbolos:

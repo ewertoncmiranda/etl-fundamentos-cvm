@@ -16,6 +16,20 @@ from dotenv import load_dotenv
 
 AMBIENTES_CONTEINER = {"docker", "container", "compose"}
 
+# Marcador que o Docker cria na raiz do container. Serve para nao depender
+# apenas de ENVIRONMENT: se a variavel nao chegar (imagem rodada com
+# `docker run` cru, por exemplo), o default de DB_HOST ainda precisa ser o
+# nome do servico, e nao `localhost` - que dentro de um container aponta para
+# o proprio container e nunca vai responder.
+MARCADOR_DE_CONTAINER = Path("/.dockerenv")
+
+
+def executando_em_container() -> bool:
+    try:
+        return MARCADOR_DE_CONTAINER.exists()
+    except OSError:
+        return False
+
 
 def carregar_env(raiz: Path | None = None) -> None:
     """Le o .env indicado por ENV_FILE. Chamado so pelo main."""
@@ -87,8 +101,10 @@ class Settings:
 
     @classmethod
     def do_ambiente(cls) -> Settings:
-        ambiente = os.getenv("ENVIRONMENT", "local").lower()
-        em_conteiner = ambiente in AMBIENTES_CONTEINER
+        ambiente = os.getenv("ENVIRONMENT", "").lower()
+        em_conteiner = ambiente in AMBIENTES_CONTEINER or executando_em_container()
+        if not ambiente:
+            ambiente = "docker" if em_conteiner else "local"
 
         return cls(
             ambiente=ambiente,

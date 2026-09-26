@@ -10,6 +10,8 @@ import logging
 from contextlib import contextmanager
 from datetime import date
 
+import pytest
+
 from app.adaptadores.cvm.cliente_http import Assinatura
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
@@ -24,6 +26,7 @@ from app.dominio.modelo import (
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.plano_contas.classificador import ClassificadorDePlano
 from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
+from app.excecoes.excecoes import ErroPermanente
 
 PERIODO = date(2025, 12, 31)
 CNPJ_WEG = "84.429.695/0001-11"
@@ -136,6 +139,19 @@ class _RepositorioExecucaoFake:
         self.registros.append(kwargs)
 
 
+class _VerificadorFake:
+    """Por padrao o schema esta ok; o teste que importa injeta um que reclama."""
+
+    def __init__(self, faltando=None):
+        self.faltando = faltando or []
+        self.conferido = False
+
+    def conferir(self, db, nome_do_banco):
+        self.conferido = True
+        if self.faltando:
+            raise ErroPermanente(f"faltam tabelas: {', '.join(self.faltando)}")
+
+
 class _PublicadorFake:
     def __init__(self):
         self.publicados = []
@@ -144,7 +160,7 @@ class _PublicadorFake:
         self.publicados.append(list(simbolos))
 
 
-def montar(fonte, universo, execucao, indicador=None, publicador=None):
+def montar(fonte, universo, execucao, indicador=None, publicador=None, verificador=None):
     return CarregarFundamentos(
         fonte=fonte,
         unidade_de_trabalho=_UnidadeDeTrabalhoFake(),
@@ -153,6 +169,8 @@ def montar(fonte, universo, execucao, indicador=None, publicador=None):
         repositorio_fato=_RepositorioFatoFake(),
         repositorio_indicador=indicador or _RepositorioIndicadorFake(),
         repositorio_execucao=execucao,
+        verificador_de_schema=verificador or _VerificadorFake(),
+        nome_do_banco="minha_base",
         montador=MontadorDeIndicadores(
             ClassificadorDePlano(), ResolvedorDeContas(), CalculadoraIndicadores()
         ),
@@ -247,3 +265,38 @@ class TestCarregarFundamentos:
         ).executar([2025])
 
         assert publicador.publicados == []
+
+
+class TestPreCondicaoDeSchema:
+
+    def test_tabela_faltando_aborta_antes_de_baixar_qualquer_coisa(self, linhas_wege3):
+        """O modo de falha real: mysql-init so roda na primeira criacao do
+        volume, entao banco que ja existia antes nao tem as tabelas da CVM
+        (infra#ISS-03). Antes disso a falha so aparecia no primeiro INSERT,
+        como traceback de SQLAlchemy."""
+        fonte = _FonteFake(linhas_wege3)
+        verificador = _VerificadorFake(faltando=["etl_execucao"])
+        caso = montar(
+            fonte,
+            _RepositorioUniversoFake(["WEGE3"]),
+            _RepositorioExecucaoFake(),
+            verificador=verificador,
+        )
+
+        with pytest.raises(ErroPermanente, match="etl_execucao"):
+            caso.executar([2025])
+
+        assert fonte.documentos_pedidos == []
+
+    def test_schema_ok_segue_a_carga(self, linhas_wege3):
+        verificador = _VerificadorFake()
+
+        resultado = montar(
+            _FonteFake(linhas_wege3),
+            _RepositorioUniversoFake(["WEGE3"]),
+            _RepositorioExecucaoFake(),
+            verificador=verificador,
+        ).executar([2025])
+
+        assert verificador.conferido is True
+        assert resultado.sucesso

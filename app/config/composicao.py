@@ -24,6 +24,7 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioUniversoSql,
 )
 from app.adaptadores.persistencia.unidade_de_trabalho import UnidadeDeTrabalho
+from app.adaptadores.persistencia.verificador_schema import VerificadorDeSchema
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
 from app.config.database_config import ConfiguracaoDeBanco
 from app.config.settings import Settings
@@ -34,7 +35,9 @@ from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
 
 
 def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamentos:
-    banco = ConfiguracaoDeBanco(settings.database_url, logger)
+    banco = ConfiguracaoDeBanco(
+        settings.database_url, logger, f"{settings.db_host}:{settings.db_port}"
+    )
     banco.aguardar_banco()
 
     fonte = FonteCvm(
@@ -58,6 +61,8 @@ def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamento
         repositorio_fato=RepositorioFatoContabilSql(),
         repositorio_indicador=RepositorioIndicadorSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
+        verificador_de_schema=VerificadorDeSchema(),
+        nome_do_banco=settings.db_name,
         montador=montador,
         publicador=_montar_publicador(settings, logger),
         logger=logger,

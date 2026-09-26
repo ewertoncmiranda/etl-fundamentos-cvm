@@ -6,7 +6,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/opt/deps -r requirements.txt
 
 FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 \
+# A imagem so existe para rodar em container, entao o default dela precisa
+# ser o de container. Sem isso, um docker run sem env cai nos defaults de
+# host e tenta localhost:3305 - que dentro do container e ele mesmo.
+ENV ENVIRONMENT=docker \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/opt/deps/lib/python3.12/site-packages \
     PATH=/opt/deps/bin:$PATH \
