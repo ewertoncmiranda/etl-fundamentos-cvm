@@ -6,16 +6,25 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py                      # anos de CVM_ANOS, ativos monitorados
     python main.py --ano 2025
     python main.py --simbolo WEGE3 --simbolo PETR4
+    python main.py --comunicados        # base IPE: ano atual e o anterior
+    python main.py --comunicados --forcar --categoria ASSEMBLEIA
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 
-from app.config.composicao import montar_carga_de_series, montar_carga_ttm, montar_caso_de_uso
+from app.config.composicao import (
+    montar_carga_de_comunicados,
+    montar_carga_de_series,
+    montar_carga_ttm,
+    montar_caso_de_uso,
+)
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
+from app.dominio.comunicado import CATEGORIAS, CATEGORIAS_PADRAO
 
 
 def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
@@ -43,7 +52,31 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         dest="simbolos",
         help="restringe a estes tickers; repetivel. Padrao: ativo_monitorado",
     )
+    parser.add_argument(
+        "--comunicados",
+        action="store_true",
+        help="carrega os comunicados oficiais da base IPE (fato relevante, proventos...)",
+    )
+    parser.add_argument(
+        "--categoria",
+        action="append",
+        dest="categorias",
+        choices=sorted(set(CATEGORIAS.values())),
+        help="com --comunicados: categoria a carregar; repetivel. Padrao: "
+        + ", ".join(CATEGORIAS_PADRAO),
+    )
+    parser.add_argument(
+        "--forcar",
+        action="store_true",
+        help="com --comunicados: processa mesmo com ETag igual (universo ou categorias mudaram)",
+    )
     return parser.parse_args(argv)
+
+
+def anos_de_comunicados(hoje: date) -> list[int]:
+    """Ano atual e o anterior: em janeiro o arquivo do ano novo ainda esta quase
+    vazio, e so o atual deixaria a linha do tempo em branco."""
+    return [hoje.year - 1, hoje.year]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -52,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     carregar_env()
     settings = Settings.do_ambiente()
     logger = configurar_logger(settings.log_level)
+
+    if argumentos.comunicados:
+        return _carregar_comunicados(argumentos, settings, logger)
 
     anos = argumentos.anos or settings.anos
     if not anos:
@@ -105,11 +141,46 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if resultado.erros:
-        for erro in resultado.erros:
-            logger.error("Erro na carga: %s", erro)
+        for mensagem in resultado.erros:
+            logger.error("Erro na carga: %s", mensagem)
         return 1
 
     return 0
+
+
+def _carregar_comunicados(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    anos = argumentos.anos or anos_de_comunicados(date.today())
+    categorias = argumentos.categorias or list(CATEGORIAS_PADRAO)
+    # Pedir simbolo explicito e sinal de recorte novo: o ETag nao mudou, mas
+    # esses tickers talvez nunca tenham sido carregados.
+    forcar = argumentos.forcar or bool(argumentos.simbolos)
+
+    logger.info(
+        "Iniciando carga de comunicados | anos=%s | categorias=%s | forcar=%s",
+        anos,
+        categorias,
+        forcar,
+    )
+    try:
+        resultado = montar_carga_de_comunicados(settings, logger).executar(
+            anos, argumentos.simbolos, categorias, forcar
+        )
+    except Exception as erro:
+        logger.critical("Carga de comunicados abortada: %s", erro, exc_info=True)
+        return 1
+
+    logger.info(
+        "Carga de comunicados concluida | processados=%s | pulados=%s | lidos=%d | "
+        "gravados=%d | tickers com novidade=%s",
+        resultado.anos_processados,
+        resultado.anos_pulados,
+        resultado.documentos_lidos,
+        resultado.documentos_gravados,
+        resultado.simbolos_com_novidade,
+    )
+    for mensagem in resultado.erros:
+        logger.error("Erro na carga de comunicados: %s", mensagem)
+    return 1 if resultado.erros else 0
 
 
 if __name__ == "__main__":

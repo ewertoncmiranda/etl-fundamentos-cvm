@@ -78,6 +78,7 @@ class Settings:
     aws_access_key_id: str = "test"
     aws_secret_access_key: str = "test"
     fila_fundamentos: str = "sqs-fundamentos-atualizados"
+    fila_comunicados: str = "sqs-comunicados-publicados"
 
     cvm_base_url: str = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
     cvm_cache_dir: Path = Path("./cache")
@@ -124,6 +125,7 @@ class Settings:
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "test"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "test"),
             fila_fundamentos=os.getenv("FUNDAMENTOS_QUEUE_NAME", "sqs-fundamentos-atualizados"),
+            fila_comunicados=os.getenv("COMUNICADOS_QUEUE_NAME", "sqs-comunicados-publicados"),
             cvm_base_url=os.getenv(
                 "CVM_BASE_URL", "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
             ),

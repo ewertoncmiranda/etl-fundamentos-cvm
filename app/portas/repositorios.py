@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any, Protocol
 
+from app.dominio.comunicado import Comunicado
 from app.dominio.modelo import (
     ComposicaoCapital,
     Empresa,
@@ -69,6 +70,26 @@ class RepositorioIndicador(Protocol):
 
 class RepositorioSeries(Protocol):
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
+        ...
+
+
+class ConsultaDeTickers(Protocol):
+    """Leitura de cvm_ticker, que a carga de fundamentos mantem a partir do FCA."""
+
+    def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
+        """simbolo -> cnpj, so para os simbolos que existem em cvm_ticker."""
+        ...
+
+
+class RepositorioComunicado(Protocol):
+    """Comunicados da base IPE (comunicado_cvm)."""
+
+    def salvar(self, db: Any, comunicados: Sequence[Comunicado]) -> list[Comunicado]:
+        """Grava o que e novo ou reapresentado e devolve exatamente isso.
+
+        Documento ja gravado na mesma versao (ou mais nova) nao conta: e o que
+        permite publicar evento so do que mudou de fato.
+        """
         ...
 
 

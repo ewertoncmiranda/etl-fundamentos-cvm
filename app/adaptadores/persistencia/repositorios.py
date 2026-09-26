@@ -24,6 +24,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.adaptadores.persistencia.entidade.entidades import (
     ComposicaoCapitalEntity,
+    ComunicadoCvmEntity,
     EmpresaEntity,
     ExecucaoEntity,
     FatoContabilEntity,
@@ -31,6 +32,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     SerieHistoricaEntity,
     TickerEntity,
 )
+from app.dominio.comunicado import Comunicado
 from app.dominio.modelo import (
     STATUS_SUCESSO,
     ComposicaoCapital,
@@ -46,7 +48,7 @@ from app.dominio.texto import normalizar
 TAMANHO_DO_LOTE = 500
 
 
-def _em_lotes(itens: Sequence[dict], tamanho: int = TAMANHO_DO_LOTE):
+def _em_lotes(itens: Sequence[Any], tamanho: int = TAMANHO_DO_LOTE):
     for inicio in range(0, len(itens), tamanho):
         yield itens[inicio : inicio + tamanho]
 
@@ -121,6 +123,88 @@ class RepositorioCadastroSql:
             registros,
             ("cnpj", "tipo_valor_mobiliario", "mercado", "ativo"),
         )
+
+    def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
+        if not simbolos:
+            return {}
+        consulta = select(TickerEntity.simbolo, TickerEntity.cnpj).where(
+            TickerEntity.simbolo.in_([s.strip().upper() for s in simbolos])
+        )
+        return {simbolo: cnpj for simbolo, cnpj in db.execute(consulta)}
+
+
+def selecionar_para_gravar(
+    recebidos: Sequence[Comunicado], versoes_gravadas: dict[str, int]
+) -> list[Comunicado]:
+    """O que e novo (protocolo desconhecido) ou reapresentado (versao maior).
+
+    Funcao pura, fora do repositorio, para a regra ser testada sem banco.
+    """
+    return [
+        c
+        for c in recebidos
+        if c.protocolo_cvm not in versoes_gravadas
+        or c.versao > versoes_gravadas[c.protocolo_cvm]
+    ]
+
+
+class RepositorioComunicadoSql:
+    """Le as versoes ja gravadas e so escreve o que mudou.
+
+    Ler antes de escrever, aqui, nao e o read-then-write criticado no topo do
+    modulo: e uma consulta por lote (nao por linha), feita pelo unico escritor
+    da tabela, e serve para saber o que e novo - informacao que o
+    ON DUPLICATE KEY UPDATE sozinho nao devolve.
+    """
+
+    COLUNAS_ATUALIZAVEIS = (
+        "protocolo_entrega",
+        "versao",
+        "cnpj",
+        "codigo_cvm",
+        "categoria",
+        "categoria_original",
+        "tipo",
+        "especie",
+        "assunto",
+        "data_referencia",
+        "data_entrega",
+        "link_download",
+    )
+
+    def salvar(self, db: Any, comunicados: Sequence[Comunicado]) -> list[Comunicado]:
+        if not comunicados:
+            return []
+
+        versoes_gravadas: dict[str, int] = {}
+        protocolos = [c.protocolo_cvm for c in comunicados]
+        for lote in _em_lotes(protocolos):
+            consulta = select(
+                ComunicadoCvmEntity.protocolo_cvm, ComunicadoCvmEntity.versao
+            ).where(ComunicadoCvmEntity.protocolo_cvm.in_(lote))
+            versoes_gravadas.update({p: v for p, v in db.execute(consulta)})
+
+        a_gravar = selecionar_para_gravar(comunicados, versoes_gravadas)
+        registros = [
+            {
+                "protocolo_cvm": c.protocolo_cvm,
+                "protocolo_entrega": c.protocolo_entrega,
+                "versao": c.versao,
+                "cnpj": c.cnpj,
+                "codigo_cvm": c.codigo_cvm,
+                "categoria": c.categoria,
+                "categoria_original": c.categoria_original,
+                "tipo": c.tipo,
+                "especie": c.especie,
+                "assunto": c.assunto,
+                "data_referencia": c.data_referencia,
+                "data_entrega": c.data_entrega,
+                "link_download": c.link_download,
+            }
+            for c in a_gravar
+        ]
+        _upsert(db, ComunicadoCvmEntity, registros, self.COLUNAS_ATUALIZAVEIS)
+        return a_gravar
 
 
 class RepositorioFatoContabilSql:
