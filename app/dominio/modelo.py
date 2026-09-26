@@ -181,5 +181,9 @@ class Indicadores:
     divida_liquida: Decimal | None = None
     fluxo_caixa_livre: Decimal | None = None
 
+    # DT_RECEB da CVM: quando esta versao do documento ficou publica. E a
+    # data que o backtest usa para nao enxergar balanco antes da hora.
+    data_entrega: date | None = None
+
     fonte: str = "CVM"
     cobertura: dict = field(default_factory=dict)

@@ -68,7 +68,7 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--forcar",
         action="store_true",
-        help="com --comunicados: processa mesmo com ETag igual (universo ou categorias mudaram)",
+        help="processa mesmo com ETag igual (universo, curadoria ou categorias mudaram)",
     )
     return parser.parse_args(argv)
 
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if argumentos.cotahist:
             resultado_series = montar_carga_de_series(settings, logger).executar(
-                anos, argumentos.simbolos
+                anos, argumentos.simbolos, argumentos.forcar
             )
             logger.info(
                 "Carga COTAHIST concluida | processados=%s | pulados=%s | candles=%d",
@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if argumentos.ttm:
             resultado_ttm = montar_carga_ttm(settings, logger).executar(
-                anos, argumentos.simbolos
+                anos, argumentos.simbolos, argumentos.forcar
             )
             logger.info(
                 "Carga TTM concluida | processados=%s | pulados=%s | indicadores=%d",
@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         caso_de_uso = montar_caso_de_uso(settings, logger)
-        resultado = caso_de_uso.executar(anos, argumentos.simbolos)
+        resultado = caso_de_uso.executar(anos, argumentos.simbolos, argumentos.forcar)
     except Exception as erro:
         logger.critical("Carga abortada: %s", erro, exc_info=True)
         return 1

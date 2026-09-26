@@ -13,6 +13,10 @@ TAMANHO_REGISTRO = 245
 TIPO_COTACAO = "01"
 MERCADO_LOTE_PADRAO = "010"
 BDI_LOTE_PADRAO = "02"
+# BDR (ex.: JBSS32, o BDR da JBS N.V. que substituiu a JBSS3) vem com BDI
+# 35 no mercado a vista de lote padrao - visto no COTAHIST_A2026.
+BDI_BDR = "35"
+BDIS_ACEITOS = {BDI_LOTE_PADRAO, BDI_BDR}
 
 
 def _inteiro(texto: str) -> int:
@@ -46,7 +50,7 @@ class LeitorCotahist:
             simbolo = linha[12:24].strip().upper()
             if simbolo not in simbolos:
                 continue
-            if linha[24:27] != MERCADO_LOTE_PADRAO or linha[10:12] != BDI_LOTE_PADRAO:
+            if linha[24:27] != MERCADO_LOTE_PADRAO or linha[10:12] not in BDIS_ACEITOS:
                 continue
             resultado.append(
                 CandleB3(

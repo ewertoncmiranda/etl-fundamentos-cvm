@@ -20,6 +20,7 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioComunicadoSql,
     RepositorioExecucaoSql,
     RepositorioFatoContabilSql,
+    RepositorioIdentidadeSql,
     RepositorioIndicadorSql,
     RepositorioSeriesSql,
     RepositorioUniversoSql,
@@ -54,6 +55,7 @@ def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamento
         montador=_montar_indicadores(),
         publicador=_montar_publicador(settings, logger),
         logger=logger,
+        repositorio_identidade=RepositorioIdentidadeSql(),
     )
 
 
@@ -70,6 +72,7 @@ def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeries
         repositorio_series=RepositorioSeriesSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
+        repositorio_identidade=RepositorioIdentidadeSql(),
     )
 
 
@@ -86,6 +89,7 @@ def montar_carga_ttm(settings: Settings, logger: Logger) -> CarregarTtm:
         montador_ttm=MontadorTtm(),
         montador_indicadores=_montar_indicadores(),
         logger=logger,
+        repositorio_identidade=RepositorioIdentidadeSql(),
     )
 
 

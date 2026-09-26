@@ -19,20 +19,21 @@ from datetime import date, datetime
 from logging import Logger
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import bindparam, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.adaptadores.persistencia.entidade.entidades import (
     ComposicaoCapitalEntity,
     ComunicadoCvmEntity,
+    CotacaoB3DiariaEntity,
     EmpresaEntity,
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
-    SerieHistoricaEntity,
     TickerEntity,
 )
 from app.dominio.comunicado import Comunicado
+from app.dominio.identidade import Identidade
 from app.dominio.modelo import (
     STATUS_SUCESSO,
     ComposicaoCapital,
@@ -43,6 +44,7 @@ from app.dominio.modelo import (
 )
 from app.dominio.serie_historica import CandleB3
 from app.dominio.texto import normalizar
+from app.dominio.validacao_acoes import conferir_acoes
 
 # Grava em blocos para nao montar um INSERT gigante nem estourar max_allowed_packet
 TAMANHO_DO_LOTE = 500
@@ -85,6 +87,24 @@ class RepositorioUniversoSql:
             )
         )
         return [linha[0].strip().upper() for linha in resultado if linha[0]]
+
+
+class RepositorioIdentidadeSql:
+    """Le ativo_identidade (curadoria de tickers renomeados, infra V6)."""
+
+    def identidades(self, db: Any) -> dict[str, Identidade]:
+        from sqlalchemy import text
+
+        linhas = db.execute(
+            text(
+                "SELECT simbolo, simbolo_canonico, cnpj, continuidade_preco "
+                "FROM ativo_identidade"
+            )
+        )
+        return {
+            simbolo: Identidade(simbolo, canonico, cnpj, bool(continuidade))
+            for simbolo, canonico, cnpj, continuidade in linhas
+        }
 
 
 class RepositorioCadastroSql:
@@ -287,6 +307,7 @@ class RepositorioIndicadorSql:
         "versao_cvm",
         "plano_contas",
         "cobertura_json",
+        "data_entrega",
     )
 
     def salvar(self, db: Any, indicadores: Sequence[Indicadores]) -> int:
@@ -320,42 +341,92 @@ class RepositorioIndicadorSql:
                 "versao_cvm": i.versao_cvm,
                 "plano_contas": i.plano_contas,
                 "cobertura_json": i.cobertura,
+                "data_entrega": i.data_entrega,
             }
             for i in indicadores
         ]
         return _upsert(db, IndicadorFundamentalistaEntity, registros, self.COLUNAS_ATUALIZAVEIS)
 
+    def conferir_acoes(self, db: Any, simbolos: Sequence[str]) -> list[str]:
+        """Aplica dominio/validacao_acoes.py sobre a serie gravada de cada
+        simbolo e devolve o que corrigiu ou anulou, para o log da carga."""
+        from sqlalchemy import text
+
+        if not simbolos:
+            return []
+        linhas = db.execute(
+            text(
+                "SELECT simbolo, periodo, tipo_periodo, acoes_ex_tesouraria "
+                "FROM indicador_fundamentalista "
+                "WHERE simbolo IN :s AND acoes_ex_tesouraria IS NOT NULL"
+            ).bindparams(bindparam("s", expanding=True)),
+            {"s": list(simbolos)},
+        )
+        por_simbolo: dict[str, dict[str, list]] = {}
+        for simbolo, periodo, tipo, acoes in linhas:
+            grupo = por_simbolo.setdefault(simbolo, {"anuais": [], "outros": []})
+            if tipo == "ANUAL":
+                grupo["anuais"].append((periodo, int(acoes)))
+            else:
+                grupo["outros"].append((periodo, tipo, int(acoes)))
+
+        relatorio = []
+        for simbolo, grupo in por_simbolo.items():
+            for c in conferir_acoes(grupo["anuais"], grupo["outros"]):
+                chave = {"s": simbolo, "p": c.periodo, "t": c.tipo_periodo, "m": c.motivo}
+                if c.fator is None:
+                    db.execute(
+                        text(
+                            "UPDATE indicador_fundamentalista SET lpa = NULL, vpa = NULL, "
+                            "cobertura_json = JSON_SET(COALESCE(cobertura_json, JSON_OBJECT()), "
+                            "'$.validacao_acoes', :m) "
+                            "WHERE simbolo = :s AND periodo = :p AND tipo_periodo = :t"
+                        ),
+                        chave,
+                    )
+                else:
+                    db.execute(
+                        text(
+                            "UPDATE indicador_fundamentalista SET "
+                            "acoes_ex_tesouraria = ROUND(acoes_ex_tesouraria * :f), "
+                            "lpa = lpa / :f, "
+                            "vpa = vpa / :f, cobertura_json = JSON_SET(COALESCE(cobertura_json, "
+                            "JSON_OBJECT()), '$.validacao_acoes', :m) "
+                            "WHERE simbolo = :s AND periodo = :p AND tipo_periodo = :t"
+                        ),
+                        {**chave, "f": c.fator},
+                    )
+                relatorio.append(f"{simbolo} {c.periodo} {c.tipo_periodo}: {c.motivo}")
+        return relatorio
+
 
 class RepositorioSeriesSql:
+    """COTAHIST vai para cotacao_b3_diaria, nao para serie_historica: la ficam
+    as velas da BRAPI, e a checagem cruzada de preco precisa das duas fontes
+    lado a lado (a chave simbolo+data sobrescreveria uma com a outra)."""
+
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
         registros = [
             {
                 "simbolo": candle.simbolo,
                 "data_pregao": candle.data_pregao,
-                "intervalo": "1d",
-                "range_usado": "1y",
                 "abertura": candle.abertura,
                 "maxima": candle.maxima,
                 "minima": candle.minima,
                 "fechamento": candle.fechamento,
-                "fechamento_ajustado": None,
                 "volume": candle.volume,
-                "fonte": "B3",
-                "detalhes_json": {
-                    "preco_ajustado": False,
-                    "numero_negocios": candle.numero_negocios,
-                    "volume_financeiro": str(candle.volume_financeiro),
-                },
+                "numero_negocios": candle.numero_negocios,
+                "volume_financeiro": candle.volume_financeiro,
             }
             for candle in candles
         ]
         return _upsert(
             db,
-            SerieHistoricaEntity,
+            CotacaoB3DiariaEntity,
             registros,
             (
-                "range_usado", "abertura", "maxima", "minima", "fechamento",
-                "fechamento_ajustado", "volume", "fonte", "detalhes_json",
+                "abertura", "maxima", "minima", "fechamento", "volume",
+                "numero_negocios", "volume_financeiro",
             ),
         )
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from logging import Logger
 
+from app.aplicacao.carregar_fundamentos import data_de_entrega
+from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO, DocumentoContabil, Empresa
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.ttm import MontadorTtm
@@ -38,6 +40,7 @@ class CarregarTtm:
         montador_ttm: MontadorTtm,
         montador_indicadores: MontadorDeIndicadores,
         logger: Logger,
+        repositorio_identidade=None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -49,12 +52,21 @@ class CarregarTtm:
         self._ttm = montador_ttm
         self._montador = montador_indicadores
         self._logger = logger
+        self._identidade = repositorio_identidade
+        self._forcar = False
 
-    def executar(self, anos: list[int], simbolos_pedidos: list[str] | None = None) -> ResultadoTtm:
+    def executar(
+        self, anos: list[int], simbolos_pedidos: list[str] | None = None, forcar: bool = False
+    ) -> ResultadoTtm:
         resultado = ResultadoTtm()
+        self._forcar = forcar
         simbolos = self._resolver_universo(simbolos_pedidos)
         for ano in sorted(anos):
             self._processar_ano(ano, simbolos, resultado)
+        if resultado.indicadores_gravados:
+            with self._uow.transacao() as db:
+                for linha in self._indicador.conferir_acoes(db, simbolos):
+                    self._logger.warning("Quantidade de acoes corrigida: %s", linha)
         return resultado
 
     def _processar_ano(self, ano: int, simbolos: list[str], resultado: ResultadoTtm) -> None:
@@ -62,7 +74,7 @@ class CarregarTtm:
         assinatura = self._fonte.assinatura("ITR", ano)
         with self._uow.transacao() as db:
             etag = self._execucao.etag_da_ultima_execucao(db, FONTE_TTM, str(ano), arquivo)
-        if assinatura.inalterado_em_relacao_a(etag):
+        if not self._forcar and assinatura.inalterado_em_relacao_a(etag):
             with self._uow.transacao() as db:
                 self._execucao.registrar(
                     db, FONTE_TTM, str(ano), arquivo, STATUS_PULADO, etag=assinatura.etag
@@ -73,15 +85,23 @@ class CarregarTtm:
         tickers = self._fonte.tickers(ano)
         if not tickers:
             tickers = self._fonte.tickers(ano - 1)
-        selecionados = {s: tickers[s] for s in simbolos if s in tickers}
+        identidades = {}
+        if self._identidade is not None:
+            with self._uow.transacao() as db:
+                identidades = self._identidade.identidades(db)
+        selecionados, ausentes = resolver_tickers(simbolos, tickers, identidades)
+        if ausentes:
+            self._logger.warning("TTM %s sem CNPJ para: %s", ano, ", ".join(ausentes))
         cnpjs = {ticker.cnpj for ticker in selecionados.values()}
         dfps = {documento.cnpj: documento for documento in self._fonte.documentos(ano - 1, cnpjs)}
         itr_atual = self._mais_recentes(self._fonte.documentos_itr(ano, cnpjs))
         itr_anterior = self._por_mes_dia(self._fonte.documentos_itr(ano - 1, cnpjs))
         capitais = self._fonte.composicoes_de_capital(ano - 1, cnpjs)
         empresas = self._fonte.empresas(ano) or self._fonte.empresas(ano - 1)
+        entregas = self._fonte.datas_de_entrega("ITR", ano, cnpjs)
 
         documentos_ttm: dict[str, DocumentoContabil] = {}
+        entregas_ttm: dict = {}
         for cnpj, atual in itr_atual.items():
             anterior = itr_anterior.get((cnpj, atual.dt_fim_exerc.month, atual.dt_fim_exerc.day))
             anual = dfps.get(cnpj)
@@ -89,6 +109,8 @@ class CarregarTtm:
                 self._logger.warning("TTM %s sem trio completo para o CNPJ %s", ano, cnpj)
                 continue
             documentos_ttm[cnpj] = self._ttm.montar(anual, atual, anterior)
+            # O TTM fica publico junto com o ITR mais recente que o compoe.
+            entregas_ttm[cnpj] = data_de_entrega(entregas, cnpj, atual.dt_refer, atual.versao)
 
         indicadores = []
         with self._uow.transacao() as db:
@@ -106,7 +128,10 @@ class CarregarTtm:
                         documento.versao, documento.dt_refer, linhas,
                     )
                 indicadores.append(
-                    self._montador.montar(simbolo, documento, capitais.get(ticker.cnpj))
+                    replace(
+                        self._montador.montar(simbolo, documento, capitais.get(ticker.cnpj)),
+                        data_entrega=entregas_ttm.get(ticker.cnpj),
+                    )
                 )
             if indicadores:
                 self._indicador.salvar(db, indicadores)

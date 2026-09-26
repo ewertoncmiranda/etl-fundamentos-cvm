@@ -6,9 +6,11 @@ escolhe as implementacoes concretas e o composition root em main.py.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import date
 from logging import Logger
 
+from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import STATUS_ERRO, STATUS_PULADO, STATUS_SUCESSO, Empresa, Ticker
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.excecoes.excecoes import ErroPermanente, ErroTransitorio
@@ -54,6 +56,7 @@ class CarregarFundamentos:
         montador: MontadorDeIndicadores,
         publicador: PublicadorDeEventos,
         logger: Logger,
+        repositorio_identidade=None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -67,11 +70,19 @@ class CarregarFundamentos:
         self._montador = montador
         self._publicador = publicador
         self._logger = logger
+        self._identidade = repositorio_identidade
+        self._forcar = False
 
     def executar(
-        self, anos: list[int], simbolos_pedidos: list[str] | None = None
+        self,
+        anos: list[int],
+        simbolos_pedidos: list[str] | None = None,
+        forcar: bool = False,
     ) -> ResultadoDaCarga:
+        """forcar: processa mesmo com ETag igual - necessario quando o universo
+        ou a curadoria de identidade mudou e o arquivo da CVM nao."""
         resultado = ResultadoDaCarga()
+        self._forcar = forcar
 
         # Falha cedo e com instrucao, em vez de estourar no primeiro INSERT
         with self._uow.transacao() as db:
@@ -100,6 +111,8 @@ class CarregarFundamentos:
                 resultado.erros.append(f"{ano}: {erro}")
                 self._registrar(ano, STATUS_ERRO, mensagem=str(erro))
 
+        self._conferir_acoes(sorted(set(resultado.simbolos_atualizados)))
+
         if resultado.simbolos_atualizados:
             self._publicador.publicar_fundamentos_atualizados(
                 sorted(set(resultado.simbolos_atualizados))
@@ -123,15 +136,17 @@ class CarregarFundamentos:
                 db, FONTE_DFP, competencia, arquivo
             )
 
-        if assinatura.inalterado_em_relacao_a(etag_anterior):
+        if not self._forcar and assinatura.inalterado_em_relacao_a(etag_anterior):
             self._logger.info("DFP %s inalterado (ETag igual); pulando", ano)
             resultado.anos_pulados.append(ano)
             self._registrar(ano, STATUS_PULADO, assinatura=assinatura)
             return
 
-        tickers = self._fonte.tickers(ano)
-        selecionados = {s: tickers[s] for s in simbolos if s in tickers}
-        ausentes = [s for s in simbolos if s not in tickers]
+        with self._uow.transacao() as db:
+            conhecidos = self._cadastro.cnpjs_por_simbolo(db, simbolos)
+        selecionados, ausentes = resolver_tickers(
+            simbolos, self._fonte.tickers(ano), self._identidades(), conhecidos
+        )
         if ausentes:
             self._logger.warning("Sem ticker no FCA %s: %s", ano, ", ".join(ausentes))
         if not selecionados:
@@ -146,6 +161,7 @@ class CarregarFundamentos:
 
         empresas = self._fonte.empresas(ano)
         capitais = self._fonte.composicoes_de_capital(ano, cnpjs)
+        entregas = self._fonte.datas_de_entrega("DFP", ano, cnpjs)
 
         linhas_gravadas = 0
         indicadores_do_ano = []
@@ -177,9 +193,20 @@ class CarregarFundamentos:
                 if capital:
                     self._fato.salvar_composicao(db, capital, documento.tipo_doc)
 
+                entrega = data_de_entrega(
+                    entregas, documento.cnpj, documento.dt_refer, documento.versao
+                )
+                if entrega is None:
+                    self._logger.warning(
+                        "DFP %s sem DT_RECEB para %s (%s v%s): fica fora do backtest",
+                        ano, documento.cnpj, documento.dt_refer, documento.versao,
+                    )
                 for simbolo in cnpj_para_simbolos.get(documento.cnpj, []):
                     indicadores_do_ano.append(
-                        self._montador.montar(simbolo, documento, capital)
+                        replace(
+                            self._montador.montar(simbolo, documento, capital),
+                            data_entrega=entrega,
+                        )
                     )
 
             if indicadores_do_ano:
@@ -208,6 +235,20 @@ class CarregarFundamentos:
             len(indicadores_do_ano),
         )
 
+    def _conferir_acoes(self, simbolos: list[str]) -> None:
+        conferir = getattr(self._indicador, "conferir_acoes", None)
+        if not simbolos or conferir is None:
+            return
+        with self._uow.transacao() as db:
+            for linha in conferir(db, simbolos):
+                self._logger.warning("Quantidade de acoes corrigida: %s", linha)
+
+    def _identidades(self):
+        if self._identidade is None:
+            return {}
+        with self._uow.transacao() as db:
+            return self._identidade.identidades(db)
+
     def _registrar(
         self,
         ano: int,
@@ -230,6 +271,18 @@ class CarregarFundamentos:
                 )
         except Exception as erro:
             self._logger.error("Falha ao registrar execucao do ano %s: %s", ano, erro)
+
+
+def data_de_entrega(
+    entregas: dict[tuple[str, date, int], date], cnpj: str, referencia: date, versao: int
+) -> date | None:
+    """DT_RECEB da versao usada; sem ela, a entrega mais tardia da mesma
+    referencia - na duvida o dado fica publico depois, nunca antes."""
+    exata = entregas.get((cnpj, referencia, versao))
+    if exata:
+        return exata
+    candidatas = [d for (c, r, _), d in entregas.items() if c == cnpj and r == referencia]
+    return max(candidatas) if candidatas else None
 
 
 def _empresa_minima(cnpj: str, selecionados: dict[str, Ticker]) -> Empresa:
