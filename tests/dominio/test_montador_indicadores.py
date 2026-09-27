@@ -12,7 +12,9 @@ from decimal import Decimal
 
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
 from app.dominio.modelo import (
+    DRE,
     GRUPO_CONSOLIDADO,
+    GRUPO_INDIVIDUAL,
     PLANO_FINANCEIRO,
     PLANO_GERAL,
     TIPO_DOC_DFP,
@@ -22,6 +24,7 @@ from app.dominio.modelo import (
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.plano_contas.classificador import ClassificadorDePlano
 from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
+from tests.conftest import linha
 
 PERIODO = date(2025, 12, 31)
 ACOES_WEGE3 = 4_195_695_973
@@ -35,11 +38,13 @@ def montador() -> MontadorDeIndicadores:
     )
 
 
-def documento(linhas, cnpj="84.429.695/0001-11") -> DocumentoContabil:
+def documento(
+    linhas, cnpj="84.429.695/0001-11", grupo=GRUPO_CONSOLIDADO
+) -> DocumentoContabil:
     return DocumentoContabil(
         cnpj=cnpj,
         tipo_doc=TIPO_DOC_DFP,
-        grupo=GRUPO_CONSOLIDADO,
+        grupo=grupo,
         versao=1,
         dt_refer=PERIODO,
         dt_fim_exerc=PERIODO,
@@ -126,6 +131,79 @@ class TestMontadorDeIndicadores:
 
         assert indicadores.tipo_periodo == "ANUAL"
         assert indicadores.periodo == PERIODO
+
+
+def dre_resultado(total: str, controlador: str | None, minoritarios: str | None):
+    """So o bloco 3.11 da DRE, no formato do consolidado."""
+    linhas = [linha("3.11", "Lucro/Prejuízo Consolidado do Período", total, DRE)]
+    if controlador is not None:
+        linhas.append(
+            linha("3.11.01", "Atribuído a Sócios da Empresa Controladora", controlador, DRE)
+        )
+    if minoritarios is not None:
+        linhas.append(
+            linha("3.11.02", "Atribuído a Sócios Não Controladores", minoritarios, DRE)
+        )
+    return {DRE: tuple(linhas)}
+
+
+class TestLucroZerado:
+    """Lucro exatamente 0 e conta nao preenchida - nunca vai ao mart como 0."""
+
+    def test_tims3_2022_divisao_zerada_usa_o_lucro_total(self):
+        # DFP 2022 consolidado da TIM: 3.11 preenchido, 3.11.01 e 3.11.02 em 0
+        linhas = dre_resultado("1670755000", "0", "0")
+
+        indicadores = montador().montar("TIMS3", documento(linhas), capital(2_420_804_398))
+
+        assert indicadores.lucro_liquido == Decimal("1670755000")
+        assert indicadores.lucro_liquido_controlador == Decimal("1670755000")
+        assert round(indicadores.lpa, 2) == Decimal("0.69")
+        cobertura = indicadores.cobertura["lucro_liquido_controlador"]
+        assert cobertura["estrategia"] == "lucro-total"
+        assert cobertura["cd_conta"] == "3.11"
+
+    def test_divisao_inconsistente_fica_nula_com_motivo(self):
+        # LREN3 2016: lucro inteiro declarado em nao controladores
+        linhas = dre_resultado("625058000", "0", "625058000")
+
+        indicadores = montador().montar("LREN3", documento(linhas), capital())
+
+        assert indicadores.lucro_liquido == Decimal("625058000")
+        assert indicadores.lucro_liquido_controlador is None
+        assert indicadores.lpa is None
+        assert indicadores.cobertura["lucro_liquido_controlador"]["estrategia"] == (
+            "inconsistente"
+        )
+
+    def test_dre_toda_zerada_nao_grava_zero(self):
+        linhas = dre_resultado("0", "0", "0")
+
+        indicadores = montador().montar("TIMS3", documento(linhas), capital())
+
+        assert indicadores.lucro_liquido is None
+        assert indicadores.lucro_liquido_controlador is None
+        assert indicadores.lpa is None
+        assert indicadores.cobertura["lucro_liquido"]["estrategia"] == "zerada"
+        assert indicadores.cobertura["lucro_liquido_controlador"]["estrategia"] == "zerada"
+
+    def test_individual_sem_3_11_01_atribui_o_lucro_ao_controlador(self):
+        linhas = {DRE: (linha("3.11", "Lucro/Prejuízo do Período", "2957174000", DRE),)}
+
+        indicadores = montador().montar(
+            "TIMS3", documento(linhas, grupo=GRUPO_INDIVIDUAL), capital()
+        )
+
+        assert indicadores.lucro_liquido_controlador == Decimal("2957174000")
+        assert indicadores.cobertura["lucro_liquido_controlador"]["estrategia"] == (
+            "lucro-total"
+        )
+
+    def test_consolidado_preenchido_nao_e_alterado(self, linhas_wege3):
+        indicadores = montador().montar("WEGE3", documento(linhas_wege3), capital())
+
+        assert indicadores.lucro_liquido_controlador == Decimal("6376219000")
+        assert indicadores.cobertura["lucro_liquido_controlador"]["estrategia"] == "rotulo"
 
 
 class TestCalculadoraIndicadores:

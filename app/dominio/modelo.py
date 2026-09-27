@@ -121,6 +121,17 @@ class DocumentoContabil:
     def vazio(self) -> bool:
         return not any(self.linhas.values())
 
+    @property
+    def zerado(self) -> bool:
+        """Tem linhas, mas todas com valor 0: formulario entregue sem preencher.
+
+        A TIM seguiu entregando o consolidado de 2024 depois de incorporar a
+        Cozani, com todas as contas em 0; o numero real esta no individual.
+        """
+        return not self.vazio and all(
+            linha.vl_conta == 0 for linhas in self.linhas.values() for linha in linhas
+        )
+
 
 @dataclass(frozen=True)
 class ContaResolvida:
