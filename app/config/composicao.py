@@ -68,7 +68,6 @@ def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeries
             leitor=LeitorCotahist(),
         ),
         unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
-        repositorio_universo=RepositorioUniversoSql(),
         repositorio_series=RepositorioSeriesSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,

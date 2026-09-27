@@ -6,7 +6,7 @@ from logging import Logger
 from app.dominio.identidade import codigos_negociados
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO
 from app.portas.fonte_series import FonteDeSeries
-from app.portas.repositorios import RepositorioExecucao, RepositorioSeries, RepositorioUniverso
+from app.portas.repositorios import RepositorioExecucao, RepositorioSeries
 
 FONTE_COTAHIST = "B3_COTAHIST"
 
@@ -23,7 +23,6 @@ class CarregarSeriesHistoricas:
         self,
         fonte: FonteDeSeries,
         unidade_de_trabalho,
-        repositorio_universo: RepositorioUniverso,
         repositorio_series: RepositorioSeries,
         repositorio_execucao: RepositorioExecucao,
         logger: Logger,
@@ -31,7 +30,6 @@ class CarregarSeriesHistoricas:
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
-        self._universo = repositorio_universo
         self._series = repositorio_series
         self._execucao = repositorio_execucao
         self._logger = logger
@@ -45,13 +43,12 @@ class CarregarSeriesHistoricas:
     ) -> ResultadoSeries:
         resultado = ResultadoSeries()
         simbolos = self._resolver_universo(simbolos_pedidos)
-        if not simbolos:
-            self._logger.warning("Nenhum ativo monitorado para carregar do COTAHIST.")
-            return resultado
-        if self._identidade is not None:
-            with self._uow.transacao() as db:
-                simbolos = sorted(codigos_negociados(simbolos, self._identidade.identidades(db)))
-        self._logger.info("COTAHIST: %d codigos (com os antigos) - %s", len(simbolos), simbolos)
+        if simbolos is None:
+            self._logger.info(
+                "COTAHIST: universo amplo, sem filtro de simbolo - todo lote padrao/BDR do arquivo"
+            )
+        else:
+            self._logger.info("COTAHIST: %d codigos (com os antigos) - %s", len(simbolos), simbolos)
 
         for ano in sorted(anos):
             arquivo = f"COTAHIST_A{ano}.ZIP"
@@ -73,7 +70,9 @@ class CarregarSeriesHistoricas:
 
             from datetime import date
 
-            candles = self._fonte.candles(ano, set(simbolos), usar_cache=ano < date.today().year)
+            candles = self._fonte.candles(
+                ano, None if simbolos is None else set(simbolos), usar_cache=ano < date.today().year
+            )
             with self._uow.transacao() as db:
                 gravados = self._series.salvar_candles_b3(db, candles)
                 self._execucao.registrar(
@@ -88,8 +87,15 @@ class CarregarSeriesHistoricas:
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
         return resultado
 
-    def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str]:
-        if simbolos_pedidos:
-            return sorted({s.strip().upper() for s in simbolos_pedidos if s.strip()})
-        with self._uow.transacao() as db:
-            return self._universo.listar_simbolos_monitorados(db)
+    def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str] | None:
+        """None = universo amplo (TASK-59): sem lista pre-definida, o proprio
+        COTAHIST e a fonte de quais simbolos negociaram naquele ano - e por
+        isso que nao ha bloqueio de deslistada aqui, diferente do
+        ativo_monitorado (que so tem o que esta sendo acompanhado hoje)."""
+        if not simbolos_pedidos:
+            return None
+        simbolos = sorted({s.strip().upper() for s in simbolos_pedidos if s.strip()})
+        if self._identidade is not None:
+            with self._uow.transacao() as db:
+                simbolos = sorted(codigos_negociados(simbolos, self._identidade.identidades(db)))
+        return simbolos
