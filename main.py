@@ -8,11 +8,17 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --simbolo WEGE3 --simbolo PETR4
     python main.py --comunicados        # base IPE: ano atual e o anterior
     python main.py --comunicados --forcar --categoria ASSEMBLEIA
+    python main.py --rotina             # tudo do dia: IPE, DFP, TTM e COTAHIST
+
+O --rotina e o comando padrao do servico no docker compose: e o que roda
+ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
+variavel nenhuma.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from datetime import date
 
@@ -35,6 +41,12 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         action="append",
         dest="anos",
         help="ano a carregar; repetivel. Padrao: CVM_ANOS",
+    )
+    parser.add_argument(
+        "--rotina",
+        action="store_true",
+        help="carga do dia inteira: comunicados, DFP do ano anterior e do atual, "
+        "TTM e COTAHIST do ano atual (ignora --ano)",
     )
     parser.add_argument(
         "--cotahist",
@@ -85,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     carregar_env()
     settings = Settings.do_ambiente()
     logger = configurar_logger(settings.log_level)
+
+    if argumentos.rotina:
+        return _rotina(argumentos, settings, logger)
 
     if argumentos.comunicados:
         return _carregar_comunicados(argumentos, settings, logger)
@@ -146,6 +161,52 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     return 0
+
+
+def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    """As quatro cargas em sequencia, cada uma isolada: uma falha (CVM fora
+    do ar, por exemplo) nao impede as outras e so muda o codigo de saida.
+    Sem novidade na origem, cada carga custa uma requisicao HEAD (ETag)."""
+    ano = date.today().year
+    simbolos = argumentos.simbolos
+    forcar = argumentos.forcar
+    etapas = [
+        ("comunicados (IPE)", lambda: _carregar_comunicados(
+            argparse.Namespace(anos=None, simbolos=simbolos, categorias=None, forcar=forcar),
+            settings, logger)),
+        ("fundamentos (DFP)", lambda: _codigo_da_carga(
+            montar_caso_de_uso(settings, logger).executar([ano - 1, ano], simbolos, forcar))),
+        ("ultimos 12 meses (TTM)", lambda: _sem_erro(
+            montar_carga_ttm(settings, logger).executar([ano], simbolos, forcar))),
+        ("preco oficial (COTAHIST)", lambda: _sem_erro(
+            montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))),
+    ]
+    falhas = []
+    for nome, etapa in etapas:
+        logger.info("Rotina | inicio: %s", nome)
+        try:
+            codigo = etapa()
+        except Exception as erro:
+            logger.error("Rotina | %s abortou: %s", nome, erro, exc_info=True)
+            codigo = 1
+        if codigo:
+            falhas.append(nome)
+    if falhas:
+        logger.error("Rotina concluida com falha em: %s", ", ".join(falhas))
+        return 1
+    logger.info("Rotina concluida sem falhas")
+    return 0
+
+
+def _sem_erro(_resultado) -> int:
+    """TTM e COTAHIST nao acumulam erro: falha neles vira excecao."""
+    return 0
+
+
+def _codigo_da_carga(resultado) -> int:
+    for mensagem in resultado.erros:
+        logging.getLogger("etl-fundamentos-cvm").error("Erro na carga: %s", mensagem)
+    return 1 if resultado.erros else 0
 
 
 def _carregar_comunicados(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
