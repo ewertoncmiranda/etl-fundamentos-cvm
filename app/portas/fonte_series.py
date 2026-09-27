@@ -10,5 +10,5 @@ class FonteDeSeries(Protocol):
     def assinatura(self, ano: int) -> Assinatura: ...
 
     def candles(
-        self, ano: int, simbolos: set[str], usar_cache: bool = False
+        self, ano: int, simbolos: set[str] | None, usar_cache: bool = False
     ) -> list[CandleB3]: ...

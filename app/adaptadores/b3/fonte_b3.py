@@ -20,9 +20,11 @@ class FonteB3:
     def assinatura(self, ano: int) -> Assinatura:
         return self._cliente.assinatura(self.caminho(ano))
 
-    def candles(self, ano: int, simbolos: set[str], usar_cache: bool = False) -> list[CandleB3]:
+    def candles(
+        self, ano: int, simbolos: set[str] | None, usar_cache: bool = False
+    ) -> list[CandleB3]:
         """usar_cache: ano fechado nao muda; so o ano corrente precisa baixar
-        de novo (~90 MB por arquivo)."""
+        de novo (~90 MB por arquivo). simbolos=None: universo amplo (TASK-59)."""
         nome = self.caminho(ano)
         if usar_cache and self._cache.tem(nome):
             conteudo = self._cache.ler(nome)

@@ -173,24 +173,38 @@ class FonteCvm:
 
         434 companhias publicam DRE consolidada contra 665 com capital
         registrado - quem nao tem controlada so publica individual.
-        """
-        consolidado = self._demonstracoes(ano, cnpjs, GRUPO_CONSOLIDADO)
-        faltantes = cnpjs - set(consolidado)
-        individual = (
-            self._demonstracoes(ano, faltantes, GRUPO_INDIVIDUAL) if faltantes else {}
-        )
 
-        for grupo, mapa in ((GRUPO_CONSOLIDADO, consolidado), (GRUPO_INDIVIDUAL, individual)):
-            for cnpj, dados in mapa.items():
-                yield DocumentoContabil(
-                    cnpj=cnpj,
-                    tipo_doc=TIPO_DOC_DFP,
-                    grupo=grupo,
-                    versao=dados["versao"],
-                    dt_refer=dados["dt_refer"],
-                    dt_fim_exerc=dados["dt_fim_exerc"],
-                    linhas={k: tuple(v) for k, v in dados["linhas"].items()},
-                )
+        Consolidado com todas as contas em 0 conta como ausente: e formulario
+        entregue sem preencher (TIM 2024), e o numero real esta no individual.
+        """
+        consolidado = {
+            cnpj: documento
+            for cnpj, documento in self._documentos_dfp(
+                ano, cnpjs, GRUPO_CONSOLIDADO
+            ).items()
+            if not documento.zerado
+        }
+        faltantes = cnpjs - set(consolidado)
+        individual = self._documentos_dfp(ano, faltantes, GRUPO_INDIVIDUAL)
+
+        yield from consolidado.values()
+        yield from individual.values()
+
+    def _documentos_dfp(
+        self, ano: int, cnpjs: set[str], grupo: str
+    ) -> dict[str, DocumentoContabil]:
+        return {
+            cnpj: DocumentoContabil(
+                cnpj=cnpj,
+                tipo_doc=TIPO_DOC_DFP,
+                grupo=grupo,
+                versao=dados["versao"],
+                dt_refer=dados["dt_refer"],
+                dt_fim_exerc=dados["dt_fim_exerc"],
+                linhas={k: tuple(v) for k, v in dados["linhas"].items()},
+            )
+            for cnpj, dados in self._demonstracoes(ano, cnpjs, grupo).items()
+        }
 
     def _demonstracoes(self, ano: int, cnpjs: set[str], grupo: str) -> dict[str, dict]:
         if not cnpjs:

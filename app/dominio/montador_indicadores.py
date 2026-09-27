@@ -11,6 +11,8 @@ from decimal import Decimal
 
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
 from app.dominio.modelo import (
+    DRE,
+    GRUPO_INDIVIDUAL,
     TIPO_DOC_DFP,
     TIPO_DOC_TTM,
     ComposicaoCapital,
@@ -18,6 +20,7 @@ from app.dominio.modelo import (
     Indicadores,
 )
 from app.dominio.plano_contas.catalogo import (
+    LUCRO_NAO_CONTROLADORES,
     METRICAS_NAO_EXTRAIVEIS,
     regras_do_plano,
     regras_fora_do_plano,
@@ -65,6 +68,8 @@ class MontadorDeIndicadores:
 
         # Metricas do catalogo que este plano de contas nao comporta: None de
         # proposito, com a razao. Ausencia explicita e melhor que numero errado.
+        self._conciliar_lucro(documento, insumos, cobertura)
+
         for regra in regras_fora_do_plano(plano):
             insumos.setdefault(regra.metrica, None)
             cobertura[regra.metrica] = {
@@ -117,6 +122,88 @@ class MontadorDeIndicadores:
             fluxo_caixa_livre=derivados["fluxo_caixa_livre"],
             cobertura=cobertura,
         )
+
+    def _conciliar_lucro(
+        self,
+        documento: DocumentoContabil,
+        insumos: dict[str, Decimal | None],
+        cobertura: dict[str, dict],
+    ) -> None:
+        """Lucro exatamente 0 e conta nao preenchida, nao resultado apurado.
+
+        A CVM exige a linha 3.11.01, mas nao que a companhia a preencha: a TIM
+        de 2022 traz 3.11 = 1,67 bi com 3.11.01 e 3.11.02 em 0. Gravar esse 0
+        derruba LPA e ROE em silencio. Quando da para recuperar, recupera; senao
+        fica None com o motivo.
+        """
+        total = insumos.get("lucro_liquido")
+        controlador = insumos.get("lucro_liquido_controlador")
+        cd_total = cobertura.get("lucro_liquido", {}).get("cd_conta")
+
+        if total == 0:
+            insumos["lucro_liquido"] = total = None
+            cobertura["lucro_liquido"].update(
+                estrategia="zerada",
+                motivo=f"conta {cd_total} veio 0; tratada como nao preenchida",
+            )
+
+        if controlador is None and total is not None and (
+            documento.grupo == GRUPO_INDIVIDUAL
+        ):
+            # Na individual nao ha 3.11.01: o lucro do periodo e da controladora.
+            self._controlador_pelo_total(
+                insumos, cobertura, total, cd_total,
+                "demonstracao individual: lucro do periodo e todo do controlador",
+            )
+            return
+
+        if controlador != 0:
+            return
+
+        if total is None:
+            insumos["lucro_liquido_controlador"] = None
+            cobertura["lucro_liquido_controlador"].update(
+                estrategia="zerada",
+                motivo="parcela do controlador e lucro total vieram 0 ou ausentes",
+            )
+            return
+
+        minoritarios = self._resolvedor.resolver(
+            LUCRO_NAO_CONTROLADORES, documento.da_demonstracao(DRE)
+        ).valor
+        if not minoritarios:
+            self._controlador_pelo_total(
+                insumos, cobertura, total, cd_total,
+                "parcela do controlador e dos nao controladores vieram 0; "
+                "divisao nao preenchida, usa o lucro total",
+            )
+            return
+
+        # 3.11.02 preenchido e 3.11.01 em 0 (LREN3 2016 poe o lucro todo em
+        # nao controladores): nao da para saber qual das duas esta certa.
+        insumos["lucro_liquido_controlador"] = None
+        cobertura["lucro_liquido_controlador"].update(
+            estrategia="inconsistente",
+            motivo=(
+                f"parcela do controlador veio 0 com nao controladores = "
+                f"{minoritarios} e total = {total}; divisao nao confiavel"
+            ),
+        )
+
+    @staticmethod
+    def _controlador_pelo_total(
+        insumos: dict[str, Decimal | None],
+        cobertura: dict[str, dict],
+        total: Decimal,
+        cd_total: str | None,
+        motivo: str,
+    ) -> None:
+        insumos["lucro_liquido_controlador"] = total
+        cobertura["lucro_liquido_controlador"] = {
+            "estrategia": "lucro-total",
+            "cd_conta": cd_total,
+            "motivo": motivo,
+        }
 
     @staticmethod
     def _cobertura_do_capital(capital: ComposicaoCapital | None) -> dict:

@@ -117,6 +117,15 @@ _SO_GERAL = (
 
 REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL
 
+# Auxiliar, fora de REGRAS: nao vira coluna do mart. So serve para conferir a
+# divisao 3.11.01/3.11.02 quando a parcela do controlador vem zerada.
+LUCRO_NAO_CONTROLADORES = RegraConta(
+    metrica="lucro_nao_controladores",
+    demonstracao=DRE,
+    rotulos=("atribuido a socios nao controladores",),
+    codigos=("3.11.02",),
+)
+
 # Metricas derivadas e os insumos de que dependem. Faltou insumo, a derivada
 # nao e calculada - nunca estimada.
 DERIVADAS: dict[str, tuple[str, ...]] = {

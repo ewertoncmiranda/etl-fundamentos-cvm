@@ -29,8 +29,11 @@ def _decimal_centavos(texto: str) -> Decimal:
 
 
 class LeitorCotahist:
-    def ler_zip(self, conteudo: bytes, simbolos: set[str]) -> list[CandleB3]:
-        simbolos_normalizados = {s.strip().upper() for s in simbolos}
+    def ler_zip(self, conteudo: bytes, simbolos: set[str] | None = None) -> list[CandleB3]:
+        """simbolos=None: universo amplo, sem filtro de simbolo - so BDI 02
+        (acoes de lote padrao), sem BDR (TASK-59). Com simbolos, so esses,
+        aceitando tambem BDI 35/BDR (uso pontual, ex.: --simbolo explicito)."""
+        simbolos_normalizados = None if simbolos is None else {s.strip().upper() for s in simbolos}
         with zipfile.ZipFile(io.BytesIO(conteudo)) as pacote:
             nomes = [nome for nome in pacote.namelist() if nome.upper().endswith(".TXT")]
             if len(nomes) != 1:
@@ -38,7 +41,11 @@ class LeitorCotahist:
             texto = pacote.read(nomes[0]).decode("latin-1")
         return self.ler_linhas(texto.splitlines(), simbolos_normalizados)
 
-    def ler_linhas(self, linhas: list[str], simbolos: set[str]) -> list[CandleB3]:
+    def ler_linhas(self, linhas: list[str], simbolos: set[str] | None = None) -> list[CandleB3]:
+        # Sem simbolos (universo amplo): so BDI 02 (acoes) - BDR (BDI 35) e
+        # papel estrangeiro sem balanco na CVM, so entra quando pedido
+        # explicitamente (ex.: JBSS32 via --simbolo/ativo_identidade).
+        bdis_aceitos = BDIS_ACEITOS if simbolos is not None else {BDI_LOTE_PADRAO}
         resultado: list[CandleB3] = []
         for numero, linha in enumerate(linhas, start=1):
             if linha[:2] != TIPO_COTACAO:
@@ -48,9 +55,9 @@ class LeitorCotahist:
                     f"Registro COTAHIST {numero} tem {len(linha)} caracteres; esperado 245"
                 )
             simbolo = linha[12:24].strip().upper()
-            if simbolo not in simbolos:
+            if simbolos is not None and simbolo not in simbolos:
                 continue
-            if linha[24:27] != MERCADO_LOTE_PADRAO or linha[10:12] not in BDIS_ACEITOS:
+            if linha[24:27] != MERCADO_LOTE_PADRAO or linha[10:12] not in bdis_aceitos:
                 continue
             resultado.append(
                 CandleB3(
