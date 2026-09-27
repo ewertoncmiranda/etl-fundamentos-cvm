@@ -43,6 +43,12 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         help="ano a carregar; repetivel. Padrao: CVM_ANOS",
     )
     parser.add_argument(
+        "--universo-backtest",
+        action="store_true",
+        help="com a carga de fundamentos: balancos de todo o universo do backtest "
+        "(acoes liquidas de cada ano no COTAHIST), nao so dos monitorados",
+    )
+    parser.add_argument(
         "--rotina",
         action="store_true",
         help="carga do dia inteira: comunicados, DFP do ano anterior e do atual, "
@@ -140,7 +146,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         caso_de_uso = montar_caso_de_uso(settings, logger)
-        resultado = caso_de_uso.executar(anos, argumentos.simbolos, argumentos.forcar)
+        resultado = caso_de_uso.executar(
+            anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
+        )
     except Exception as erro:
         logger.critical("Carga abortada: %s", erro, exc_info=True)
         return 1

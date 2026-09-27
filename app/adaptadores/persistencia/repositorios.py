@@ -88,6 +88,31 @@ class RepositorioUniversoSql:
         )
         return [linha[0].strip().upper() for linha in resultado if linha[0]]
 
+    # Mesma regra do universo do backtest (gerar-insights app/validacao/
+    # universo.py, infra#TASK-31): >= 200 pregoes e volume medio >= R$ 5 mi/dia
+    # em algum ano, sem units (11) nem BDRs (31-39) fora da ativo_identidade.
+    PREGOES_MINIMOS = 200
+    LIQUIDEZ_MINIMA = 5_000_000
+
+    def listar_simbolos_liquidos(self, db: Any) -> list[str]:
+        """Todo codigo que entrou no universo do backtest em algum ano, com os
+        monitorados - e quem precisa de balanco para o backtest amplo."""
+        from sqlalchemy import text
+
+        resultado = db.execute(
+            text(
+                "SELECT DISTINCT t.simbolo FROM ("
+                "  SELECT simbolo, YEAR(data_pregao) ano, COUNT(*) n, AVG(volume_financeiro) vol"
+                "  FROM cotacao_b3_diaria GROUP BY simbolo, YEAR(data_pregao)"
+                ") t WHERE t.n >= :pregoes AND t.vol >= :liquidez AND t.simbolo NOT LIKE '%11' "
+                "AND (t.simbolo NOT REGEXP '3[1-9]$' "
+                "     OR t.simbolo IN (SELECT simbolo FROM ativo_identidade)) "
+                "UNION SELECT simbolo FROM ativo_monitorado WHERE ativo = TRUE"
+            ),
+            {"pregoes": self.PREGOES_MINIMOS, "liquidez": self.LIQUIDEZ_MINIMA},
+        )
+        return sorted(linha[0].strip().upper() for linha in resultado if linha[0])
+
 
 class RepositorioIdentidadeSql:
     """Le ativo_identidade (curadoria de tickers renomeados, infra V6)."""
