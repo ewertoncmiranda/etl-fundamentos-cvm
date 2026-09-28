@@ -78,6 +78,7 @@ class CarregarFundamentos:
         anos: list[int],
         simbolos_pedidos: list[str] | None = None,
         forcar: bool = False,
+        universo_backtest: bool = False,
     ) -> ResultadoDaCarga:
         """forcar: processa mesmo com ETag igual - necessario quando o universo
         ou a curadoria de identidade mudou e o arquivo da CVM nao."""
@@ -88,7 +89,7 @@ class CarregarFundamentos:
         with self._uow.transacao() as db:
             self._verificador.conferir(db, self._nome_do_banco)
 
-        simbolos = self._resolver_universo(simbolos_pedidos)
+        simbolos = self._resolver_universo(simbolos_pedidos, universo_backtest)
         if not simbolos:
             self._logger.warning(
                 "Nenhum ativo monitorado. Registre um com "
@@ -120,10 +121,14 @@ class CarregarFundamentos:
 
         return resultado
 
-    def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str]:
+    def _resolver_universo(
+        self, simbolos_pedidos: list[str] | None, universo_backtest: bool = False
+    ) -> list[str]:
         if simbolos_pedidos:
             return [s.strip().upper() for s in simbolos_pedidos if s.strip()]
         with self._uow.transacao() as db:
+            if universo_backtest:
+                return self._universo.listar_simbolos_liquidos(db)
             return self._universo.listar_simbolos_monitorados(db)
 
     def _processar_ano(self, ano: int, simbolos: list[str], resultado: ResultadoDaCarga) -> None:

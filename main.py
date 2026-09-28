@@ -43,6 +43,12 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         help="ano a carregar; repetivel. Padrao: CVM_ANOS",
     )
     parser.add_argument(
+        "--universo-backtest",
+        action="store_true",
+        help="com a carga de fundamentos: balancos de todo o universo do backtest "
+        "(acoes liquidas de cada ano no COTAHIST), nao so dos monitorados",
+    )
+    parser.add_argument(
         "--rotina",
         action="store_true",
         help="carga do dia inteira: comunicados, DFP do ano anterior e do atual, "
@@ -140,7 +146,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         caso_de_uso = montar_caso_de_uso(settings, logger)
-        resultado = caso_de_uso.executar(anos, argumentos.simbolos, argumentos.forcar)
+        resultado = caso_de_uso.executar(
+            anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
+        )
     except Exception as erro:
         logger.critical("Carga abortada: %s", erro, exc_info=True)
         return 1
@@ -174,8 +182,12 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
         ("comunicados (IPE)", lambda: _carregar_comunicados(
             argparse.Namespace(anos=None, simbolos=simbolos, categorias=None, forcar=forcar),
             settings, logger)),
+        # Balancos da camada Base inteira (universo liquido + cadastrados), nao
+        # so dos cadastrados: os insights diarios sem BRAPI precisam deles.
+        # Sem novidade na CVM, custa um HEAD por ano (ETag).
         ("fundamentos (DFP)", lambda: _codigo_da_carga(
-            montar_caso_de_uso(settings, logger).executar([ano - 1, ano], simbolos, forcar))),
+            montar_caso_de_uso(settings, logger).executar(
+                [ano - 1, ano], simbolos, forcar, universo_backtest=not simbolos))),
         ("ultimos 12 meses (TTM)", lambda: _sem_erro(
             montar_carga_ttm(settings, logger).executar([ano], simbolos, forcar))),
         ("preco oficial (COTAHIST)", lambda: _sem_erro(

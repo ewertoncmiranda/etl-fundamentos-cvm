@@ -179,8 +179,24 @@ class MontadorDeIndicadores:
             )
             return
 
-        # 3.11.02 preenchido e 3.11.01 em 0 (LREN3 2016 poe o lucro todo em
-        # nao controladores): nao da para saber qual das duas esta certa.
+        # 3.11 = 3.11.01 + 3.11.02: com os nao controladores preenchidos, a
+        # parcela do controlador sai da identidade (ECOR3 2021: 367 mi de total,
+        # -4,8 mi de nao controladores, 3.11.01 em 0).
+        derivado = total - minoritarios
+        if derivado != 0:
+            insumos["lucro_liquido_controlador"] = derivado
+            cobertura["lucro_liquido_controlador"] = {
+                "estrategia": "derivada",
+                "cd_conta": f"{cd_total}-3.11.02",
+                "motivo": (
+                    "parcela do controlador veio 0; calculada como lucro total "
+                    "menos nao controladores"
+                ),
+            }
+            return
+
+        # Nao controladores = total (LREN3 2016 poe o lucro todo ali): a
+        # identidade daria 0 e nao da para saber qual das duas contas esta certa.
         insumos["lucro_liquido_controlador"] = None
         cobertura["lucro_liquido_controlador"].update(
             estrategia="inconsistente",

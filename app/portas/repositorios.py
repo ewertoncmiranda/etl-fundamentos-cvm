@@ -31,6 +31,10 @@ class RepositorioUniverso(Protocol):
     def listar_simbolos_monitorados(self, db: Any) -> list[str]:
         ...
 
+    def listar_simbolos_liquidos(self, db: Any) -> list[str]:
+        """Universo do backtest amplo (infra#TASK-31) mais os monitorados."""
+        ...
+
 
 class RepositorioCadastro(Protocol):
     """Empresas e tickers vindos do FCA."""

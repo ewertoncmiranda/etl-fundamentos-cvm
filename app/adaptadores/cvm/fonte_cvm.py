@@ -168,7 +168,9 @@ class FonteCvm:
 
     # --- demonstracoes (DFP) ----------------------------------------------
 
-    def documentos(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
+    def documentos(
+        self, ano: int, cnpjs: set[str], todos_os_grupos: bool = False
+    ) -> Iterable[DocumentoContabil]:
         """Consolidado quando existe; individual como fallback.
 
         434 companhias publicam DRE consolidada contra 665 com capital
@@ -176,6 +178,9 @@ class FonteCvm:
 
         Consolidado com todas as contas em 0 conta como ausente: e formulario
         entregue sem preencher (TIM 2024), e o numero real esta no individual.
+
+        `todos_os_grupos` entrega consolidado e individual de cada companhia,
+        para quem precisa casar grupo com outro documento (o TTM).
         """
         consolidado = {
             cnpj: documento
@@ -184,11 +189,11 @@ class FonteCvm:
             ).items()
             if not documento.zerado
         }
-        faltantes = cnpjs - set(consolidado)
+        faltantes = cnpjs if todos_os_grupos else cnpjs - set(consolidado)
         individual = self._documentos_dfp(ano, faltantes, GRUPO_INDIVIDUAL)
 
         yield from consolidado.values()
-        yield from individual.values()
+        yield from (d for d in individual.values() if not d.zerado)
 
     def _documentos_dfp(
         self, ano: int, cnpjs: set[str], grupo: str
@@ -249,14 +254,15 @@ class FonteCvm:
         return {cnpj: dados for cnpj, dados in acumulado.items() if dados["linhas"]}
 
     def documentos_itr(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
-        consolidado = self._demonstracoes_itr(ano, cnpjs, GRUPO_CONSOLIDADO)
-        cnpjs_com_consolidado = {cnpj for cnpj, _ in consolidado}
-        individual = self._demonstracoes_itr(
-            ano, cnpjs - cnpjs_com_consolidado, GRUPO_INDIVIDUAL
-        )
-        for grupo, mapa in ((GRUPO_CONSOLIDADO, consolidado), (GRUPO_INDIVIDUAL, individual)):
+        """Consolidado e individual de cada trimestre, menos os zerados.
+
+        Quem escolhe o grupo e o TTM: a TIM publica consolidado em 2026 e so
+        individual em 2025, e somar um com o outro mistura perimetros.
+        """
+        for grupo in (GRUPO_CONSOLIDADO, GRUPO_INDIVIDUAL):
+            mapa = self._demonstracoes_itr(ano, cnpjs, grupo)
             for (cnpj, _), dados in sorted(mapa.items(), key=lambda item: item[0][1]):
-                yield DocumentoContabil(
+                documento = DocumentoContabil(
                     cnpj=cnpj,
                     tipo_doc=TIPO_DOC_ITR,
                     grupo=grupo,
@@ -265,6 +271,8 @@ class FonteCvm:
                     dt_fim_exerc=dados["dt_fim_exerc"],
                     linhas={k: tuple(v) for k, v in dados["linhas"].items()},
                 )
+                if not documento.zerado:
+                    yield documento
 
     def _demonstracoes_itr(
         self, ano: int, cnpjs: set[str], grupo: str

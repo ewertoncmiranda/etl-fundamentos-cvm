@@ -48,12 +48,18 @@ class FonteDeDocumentos(Protocol):
         """cnpj -> Empresa."""
         ...
 
-    def documentos(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
-        """As demonstracoes das companhias pedidas, ja normalizadas."""
+    def documentos(
+        self, ano: int, cnpjs: set[str], todos_os_grupos: bool = False
+    ) -> Iterable[DocumentoContabil]:
+        """As demonstracoes das companhias pedidas, ja normalizadas.
+
+        Um documento por companhia (consolidado, senao individual); com
+        `todos_os_grupos`, os dois grupos que existirem.
+        """
         ...
 
     def documentos_itr(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
-        """ITRs do ano, preservando cada data de referência."""
+        """ITRs do ano, preservando cada data de referência e os dois grupos."""
         ...
 
     def datas_de_entrega(
