@@ -15,6 +15,7 @@ from app.adaptadores.cvm.fonte_cvm import FonteCvm
 from app.adaptadores.cvm.fonte_ipe import FonteIpe
 from app.adaptadores.cvm.normalizador import NormalizadorDeLinhas
 from app.adaptadores.mensageria.publicador_sqs import PublicadorSqs
+from app.adaptadores.persistencia.repositorio_conciliacao import RepositorioConciliacaoSql
 from app.adaptadores.persistencia.repositorios import (
     RepositorioCadastroSql,
     RepositorioComunicadoSql,
@@ -31,6 +32,7 @@ from app.aplicacao.carregar_comunicados import CarregarComunicados
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
 from app.aplicacao.carregar_series_historicas import CarregarSeriesHistoricas
 from app.aplicacao.carregar_ttm import CarregarTtm
+from app.aplicacao.conciliar_precos import ConciliarPrecos
 from app.config.database_config import ConfiguracaoDeBanco
 from app.config.settings import Settings
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
@@ -112,6 +114,16 @@ def montar_carga_de_comunicados(settings: Settings, logger: Logger) -> CarregarC
         ),
         nome_do_banco=settings.db_name,
         publicador=_montar_publicador(settings, logger, settings.fila_comunicados),
+        logger=logger,
+    )
+
+
+def montar_conciliacao(settings: Settings, logger: Logger) -> ConciliarPrecos:
+    banco = _montar_banco(settings, logger)
+    return ConciliarPrecos(
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio=RepositorioConciliacaoSql(),
+        repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
     )
 

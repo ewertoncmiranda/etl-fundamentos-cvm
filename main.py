@@ -9,6 +9,7 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --comunicados        # base IPE: ano atual e o anterior
     python main.py --comunicados --forcar --categoria ASSEMBLEIA
     python main.py --rotina             # tudo do dia: IPE, DFP, TTM e COTAHIST
+    python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
 
 O --rotina e o comando padrao do servico no docker compose: e o que roda
 ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
@@ -27,6 +28,7 @@ from app.config.composicao import (
     montar_carga_de_series,
     montar_carga_ttm,
     montar_caso_de_uso,
+    montar_conciliacao,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -84,6 +86,17 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         + ", ".join(CATEGORIAS_PADRAO),
     )
     parser.add_argument(
+        "--conciliar",
+        action="store_true",
+        help="compara a foto da BRAPI (17:40) com o COTAHIST e registra o veredito "
+        "em etl_execucao; sai com 3 quando ha divergencia grave",
+    )
+    parser.add_argument(
+        "--data",
+        type=date.fromisoformat,
+        help="com --conciliar: pregao especifico (AAAA-MM-DD), mesmo ja conciliado",
+    )
+    parser.add_argument(
         "--forcar",
         action="store_true",
         help="processa mesmo com ETag igual (universo, curadoria ou categorias mudaram)",
@@ -109,6 +122,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if argumentos.comunicados:
         return _carregar_comunicados(argumentos, settings, logger)
+
+    if argumentos.conciliar:
+        return _conciliar(argumentos, settings, logger)
 
     anos = argumentos.anos or settings.anos
     if not anos:
@@ -208,6 +224,22 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
         return 1
     logger.info("Rotina concluida sem falhas")
     return 0
+
+
+CODIGO_ALERTA_CONCILIACAO = 3
+
+
+def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    """0 sem alerta (ou antes da V15 existir); 3 com divergencia grave, para o
+    script da rotina disparar o alerta sem confundir com falha de carga (1)."""
+    try:
+        resultado = montar_conciliacao(settings, logger).executar(argumentos.data)
+    except Exception as erro:
+        logger.critical("Conciliacao abortada: %s", erro, exc_info=True)
+        return 1
+    if not resultado.resumos and resultado.disponivel:
+        logger.info("Conciliacao: nenhum pregao novo para conciliar")
+    return CODIGO_ALERTA_CONCILIACAO if resultado.alerta else 0
 
 
 def _sem_erro(_resultado) -> int:
