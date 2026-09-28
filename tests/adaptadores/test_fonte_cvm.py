@@ -56,6 +56,28 @@ class TestEscolhaDoGrupo:
         assert documentos[TIM].da_demonstracao(DRE)[0].vl_conta == 3153881000
         assert documentos[WEG].grupo == GRUPO_CONSOLIDADO
 
+    def test_todos_os_grupos_entrega_os_dois_menos_os_zerados(self):
+        fonte, _ = _fonte(
+            {
+                GRUPO_CONSOLIDADO: {
+                    TIM: _dados(linha("3.11", "Lucro/Prejuízo Consolidado do Período", "0", DRE)),
+                    WEG: _dados(linha("3.11", "Lucro/Prejuízo Consolidado do Período", "1", DRE)),
+                },
+                GRUPO_INDIVIDUAL: {
+                    TIM: _dados(linha("3.11", "Lucro/Prejuízo do Período", "3", DRE)),
+                    WEG: _dados(linha("3.11", "Lucro/Prejuízo do Período", "2", DRE)),
+                },
+            }
+        )
+
+        documentos = fonte.documentos(2024, {TIM, WEG}, todos_os_grupos=True)
+
+        assert sorted((d.cnpj, d.grupo) for d in documentos) == [
+            (TIM, GRUPO_INDIVIDUAL),
+            (WEG, GRUPO_CONSOLIDADO),
+            (WEG, GRUPO_INDIVIDUAL),
+        ]
+
     def test_consolidado_preenchido_nao_busca_individual(self):
         fonte, pedidos = _fonte(
             {

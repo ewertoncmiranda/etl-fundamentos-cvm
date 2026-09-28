@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
+from datetime import date
 from logging import Logger
 
 from app.aplicacao.carregar_fundamentos import data_de_entrega
 from app.dominio.identidade import resolver_tickers
-from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO, DocumentoContabil, Empresa
+from app.dominio.modelo import (
+    GRUPO_CONSOLIDADO,
+    STATUS_PULADO,
+    STATUS_SUCESSO,
+    DocumentoContabil,
+    Empresa,
+)
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.ttm import MontadorTtm
 from app.portas.fonte_documentos import FonteDeDocumentos
@@ -93,21 +101,21 @@ class CarregarTtm:
         if ausentes:
             self._logger.warning("TTM %s sem CNPJ para: %s", ano, ", ".join(ausentes))
         cnpjs = {ticker.cnpj for ticker in selecionados.values()}
-        dfps = {documento.cnpj: documento for documento in self._fonte.documentos(ano - 1, cnpjs)}
-        itr_atual = self._mais_recentes(self._fonte.documentos_itr(ano, cnpjs))
-        itr_anterior = self._por_mes_dia(self._fonte.documentos_itr(ano - 1, cnpjs))
+        itrs_atuais = list(self._fonte.documentos_itr(ano, cnpjs))
+        trios = escolher_trios(
+            self._fonte.documentos(ano - 1, cnpjs, todos_os_grupos=True),
+            itrs_atuais,
+            self._fonte.documentos_itr(ano - 1, cnpjs),
+        )
         capitais = self._fonte.composicoes_de_capital(ano - 1, cnpjs)
         empresas = self._fonte.empresas(ano) or self._fonte.empresas(ano - 1)
         entregas = self._fonte.datas_de_entrega("ITR", ano, cnpjs)
 
         documentos_ttm: dict[str, DocumentoContabil] = {}
         entregas_ttm: dict = {}
-        for cnpj, atual in itr_atual.items():
-            anterior = itr_anterior.get((cnpj, atual.dt_fim_exerc.month, atual.dt_fim_exerc.day))
-            anual = dfps.get(cnpj)
-            if anual is None or anterior is None:
-                self._logger.warning("TTM %s sem trio completo para o CNPJ %s", ano, cnpj)
-                continue
+        for cnpj in sorted({itr.cnpj for itr in itrs_atuais} - set(trios)):
+            self._logger.warning("TTM %s sem trio completo para o CNPJ %s", ano, cnpj)
+        for cnpj, (anual, atual, anterior) in trios.items():
             documentos_ttm[cnpj] = self._ttm.montar(anual, atual, anterior)
             # O TTM fica publico junto com o ITR mais recente que o compoe.
             entregas_ttm[cnpj] = data_de_entrega(entregas, cnpj, atual.dt_refer, atual.versao)
@@ -151,18 +159,41 @@ class CarregarTtm:
         with self._uow.transacao() as db:
             return self._universo.listar_simbolos_monitorados(db)
 
-    @staticmethod
-    def _mais_recentes(documentos) -> dict[str, DocumentoContabil]:
-        saida: dict[str, DocumentoContabil] = {}
-        for documento in documentos:
-            anterior = saida.get(documento.cnpj)
-            if anterior is None or documento.dt_fim_exerc > anterior.dt_fim_exerc:
-                saida[documento.cnpj] = documento
-        return saida
 
-    @staticmethod
-    def _por_mes_dia(documentos) -> dict[tuple[str, int, int], DocumentoContabil]:
-        return {
-            (doc.cnpj, doc.dt_fim_exerc.month, doc.dt_fim_exerc.day): doc
-            for doc in documentos
-        }
+
+Trio = tuple[DocumentoContabil, DocumentoContabil, DocumentoContabil]
+
+
+def escolher_trios(
+    dfps_anteriores: Iterable[DocumentoContabil],
+    itrs_atuais: Iterable[DocumentoContabil],
+    itrs_anteriores: Iterable[DocumentoContabil],
+) -> dict[str, Trio]:
+    """cnpj -> (DFP anterior, ITR atual, ITR anterior), todos do mesmo grupo.
+
+    Misturar grupos soma perimetros diferentes e, pior, descarta em silencio
+    as contas cujo rotulo muda ("Lucro/Prejuizo Consolidado do Periodo" x
+    "Lucro/Prejuizo do Periodo"). Entre os trios completos vale o corte mais
+    recente; no empate, o consolidado.
+    """
+    dfps = {(d.cnpj, d.grupo): d for d in dfps_anteriores}
+    anteriores = {
+        (d.cnpj, d.grupo, d.dt_fim_exerc.month, d.dt_fim_exerc.day): d
+        for d in itrs_anteriores
+    }
+    saida: dict[str, Trio] = {}
+    for atual in itrs_atuais:
+        anual = dfps.get((atual.cnpj, atual.grupo))
+        anterior = anteriores.get(
+            (atual.cnpj, atual.grupo, atual.dt_fim_exerc.month, atual.dt_fim_exerc.day)
+        )
+        if anual is None or anterior is None:
+            continue
+        escolhido = saida.get(atual.cnpj)
+        if escolhido is None or _preferencia(atual) > _preferencia(escolhido[1]):
+            saida[atual.cnpj] = (anual, atual, anterior)
+    return saida
+
+
+def _preferencia(itr: DocumentoContabil) -> tuple[date, bool]:
+    return itr.dt_fim_exerc, itr.grupo == GRUPO_CONSOLIDADO

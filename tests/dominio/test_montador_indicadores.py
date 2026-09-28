@@ -176,6 +176,17 @@ class TestLucroZerado:
             "inconsistente"
         )
 
+    def test_ecor3_2021_controlador_sai_da_identidade(self):
+        # 3.11.01 em 0, mas 3.11.02 preenchido: 3.11.01 = 3.11 - 3.11.02
+        linhas = dre_resultado("367262000", "0", "-4780000")
+
+        indicadores = montador().montar("ECOR3", documento(linhas), capital())
+
+        assert indicadores.lucro_liquido_controlador == Decimal("372042000")
+        cobertura = indicadores.cobertura["lucro_liquido_controlador"]
+        assert cobertura["estrategia"] == "derivada"
+        assert cobertura["cd_conta"] == "3.11-3.11.02"
+
     def test_dre_toda_zerada_nao_grava_zero(self):
         linhas = dre_resultado("0", "0", "0")
 
