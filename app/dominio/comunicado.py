@@ -87,6 +87,25 @@ def extrair_protocolo(link_download: str | None) -> str | None:
     return encontrado.group(1) if encontrado else None
 
 
+# Data de referencia fora desta faixa e erro de digitacao da companhia
+# (visto: 2925-11-06; 36 casos no banco em 30-09-2026). Um ano depois da
+# entrega ainda cobre calendarios de eventos anunciados com antecedencia.
+REFERENCIA_MAIS_ANTIGA = date(2000, 1, 1)
+FOLGA_REFERENCIA_APOS_ENTREGA_DIAS = 366
+
+
+def data_referencia_plausivel(referencia: date | None, entrega: date) -> date | None:
+    """A propria data, ou None quando nao pode ser verdade. Quem mede
+    evento no tempo usa data_entrega; a referencia e so informativa."""
+    if referencia is None:
+        return None
+    if referencia < REFERENCIA_MAIS_ANTIGA:
+        return None
+    if (referencia - entrega).days > FOLGA_REFERENCIA_APOS_ENTREGA_DIAS:
+        return None
+    return referencia
+
+
 def versao_mais_recente(comunicados: list[Comunicado]) -> list[Comunicado]:
     """Um comunicado por protocolo, ficando a maior versao.
 

@@ -22,6 +22,7 @@ from app.adaptadores.cvm.leitor_pacote import LeitorDePacoteCvm
 from app.dominio.comunicado import (
     Comunicado,
     classificar_categoria,
+    data_referencia_plausivel,
     extrair_protocolo,
     versao_mais_recente,
 )
@@ -85,6 +86,7 @@ def ler_comunicados(
     """Separado da classe para poder ser testado com um ZIP montado em memoria."""
     encontrados: list[Comunicado] = []
     sem_protocolo = 0
+    referencias_invalidas = 0
 
     with leitor:
         linhas = leitor.linhas(arquivo)
@@ -106,6 +108,10 @@ def ler_comunicados(
             if not protocolo or data_entrega is None:
                 sem_protocolo += 1
                 continue
+            referencia_lida = _data(linha.get("Data_Referencia"))
+            referencia = data_referencia_plausivel(referencia_lida, data_entrega)
+            if referencia_lida is not None and referencia is None:
+                referencias_invalidas += 1
 
             encontrados.append(
                 Comunicado(
@@ -121,10 +127,17 @@ def ler_comunicados(
                     tipo=_texto(linha.get("Tipo"), 120),
                     especie=_texto(linha.get("Especie"), 120),
                     assunto=_texto(linha.get("Assunto")),
-                    data_referencia=_data(linha.get("Data_Referencia")),
+                    data_referencia=referencia,
                 )
             )
 
+    if referencias_invalidas:
+        logger.warning(
+            "%s: %d data(s) de referencia fora da faixa plausivel; gravadas como nulas "
+            "(eventos usam a data de entrega)",
+            arquivo,
+            referencias_invalidas,
+        )
     if sem_protocolo:
         logger.warning(
             "%s: %d linha(s) sem numProtocolo no link ou sem data de entrega; ignoradas",

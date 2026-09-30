@@ -23,13 +23,19 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioFatoContabilSql,
     RepositorioIdentidadeSql,
     RepositorioIndicadorSql,
+    RepositorioProventoSql,
     RepositorioSeriesSql,
     RepositorioUniversoSql,
 )
 from app.adaptadores.persistencia.unidade_de_trabalho import UnidadeDeTrabalho
-from app.adaptadores.persistencia.verificador_schema import VerificadorDeSchema
+from app.adaptadores.persistencia.verificador_schema import (
+    COLUNAS_V16_COTAHIST,
+    COLUNAS_V16_FUNDAMENTOS,
+    VerificadorDeSchema,
+)
 from app.aplicacao.carregar_comunicados import CarregarComunicados
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
+from app.aplicacao.carregar_proventos import CarregarProventosContabeis
 from app.aplicacao.carregar_series_historicas import CarregarSeriesHistoricas
 from app.aplicacao.carregar_ttm import CarregarTtm
 from app.aplicacao.conciliar_precos import ConciliarPrecos
@@ -52,7 +58,7 @@ def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamento
         repositorio_fato=RepositorioFatoContabilSql(),
         repositorio_indicador=RepositorioIndicadorSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
-        verificador_de_schema=VerificadorDeSchema(),
+        verificador_de_schema=VerificadorDeSchema(colunas=COLUNAS_V16_FUNDAMENTOS),
         nome_do_banco=settings.db_name,
         montador=_montar_indicadores(),
         publicador=_montar_publicador(settings, logger),
@@ -74,6 +80,10 @@ def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeries
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
         repositorio_identidade=RepositorioIdentidadeSql(),
+        verificador_de_schema=VerificadorDeSchema(
+            ("cotacao_b3_diaria", "etl_execucao"), colunas=COLUNAS_V16_COTAHIST
+        ),
+        nome_do_banco=settings.db_name,
     )
 
 
@@ -115,6 +125,25 @@ def montar_carga_de_comunicados(settings: Settings, logger: Logger) -> CarregarC
         nome_do_banco=settings.db_name,
         publicador=_montar_publicador(settings, logger, settings.fila_comunicados),
         logger=logger,
+    )
+
+
+def montar_carga_proventos(settings: Settings, logger: Logger) -> CarregarProventosContabeis:
+    banco = _montar_banco(settings, logger)
+    return CarregarProventosContabeis(
+        fonte=_montar_fonte_cvm(settings, logger),
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio_universo=RepositorioUniversoSql(),
+        repositorio_cadastro=RepositorioCadastroSql(),
+        repositorio_provento=RepositorioProventoSql(),
+        repositorio_execucao=RepositorioExecucaoSql(logger),
+        logger=logger,
+        repositorio_identidade=RepositorioIdentidadeSql(),
+        verificador_de_schema=VerificadorDeSchema(
+            ("cvm_ticker", "etl_execucao", "provento_contabil"),
+            colunas={"provento_contabil": COLUNAS_V16_FUNDAMENTOS["provento_contabil"]},
+        ),
+        nome_do_banco=settings.db_name,
     )
 
 

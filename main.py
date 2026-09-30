@@ -10,6 +10,7 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --comunicados --forcar --categoria ASSEMBLEIA
     python main.py --rotina             # tudo do dia: IPE, DFP, TTM e COTAHIST
     python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
+    python main.py --proventos --ano 2024 --universo-backtest  # DVA (infra V16)
 
 O --rotina e o comando padrao do servico no docker compose: e o que roda
 ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
@@ -26,6 +27,7 @@ from datetime import date
 from app.config.composicao import (
     montar_carga_de_comunicados,
     montar_carga_de_series,
+    montar_carga_proventos,
     montar_carga_ttm,
     montar_caso_de_uso,
     montar_conciliacao,
@@ -86,6 +88,11 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         + ", ".join(CATEGORIAS_PADRAO),
     )
     parser.add_argument(
+        "--proventos",
+        action="store_true",
+        help="JCP e dividendos por trimestre a partir da DVA da CVM (infra V16, plano LAC)",
+    )
+    parser.add_argument(
         "--conciliar",
         action="store_true",
         help="compara a foto da BRAPI (17:40) com o COTAHIST e registra o veredito "
@@ -125,6 +132,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if argumentos.conciliar:
         return _conciliar(argumentos, settings, logger)
+
+    if argumentos.proventos:
+        return _carregar_proventos(argumentos, settings, logger)
 
     anos = argumentos.anos or settings.anos
     if not anos:
@@ -208,6 +218,11 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
             montar_carga_ttm(settings, logger).executar([ano], simbolos, forcar))),
         ("preco oficial (COTAHIST)", lambda: _sem_erro(
             montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))),
+        # Plano LAC (L1): proventos da DVA do ano anterior e do corrente, pelo
+        # cache (sem download novo); upsert, entao repetir e inofensivo.
+        ("proventos (DVA)", lambda: _sem_erro(
+            montar_carga_proventos(settings, logger).executar(
+                [ano - 1, ano], simbolos, universo_backtest=not simbolos))),
     ]
     falhas = []
     for nome, etapa in etapas:
@@ -223,6 +238,22 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
         logger.error("Rotina concluida com falha em: %s", ", ".join(falhas))
         return 1
     logger.info("Rotina concluida sem falhas")
+    return 0
+
+
+def _carregar_proventos(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    anos = argumentos.anos or settings.anos
+    try:
+        resultado = montar_carga_proventos(settings, logger).executar(
+            anos, argumentos.simbolos, argumentos.universo_backtest
+        )
+    except Exception as erro:
+        logger.critical("Carga de proventos abortada: %s", erro, exc_info=True)
+        return 1
+    logger.info(
+        "Carga de proventos concluida | anos=%s | periodos=%d",
+        resultado.anos_processados, resultado.periodos_gravados,
+    )
     return 0
 
 

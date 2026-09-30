@@ -13,6 +13,7 @@ from app.dominio.comunicado import (
     RESULTADOS,
     Comunicado,
     classificar_categoria,
+    data_referencia_plausivel,
     extrair_protocolo,
     versao_mais_recente,
 )
@@ -89,3 +90,19 @@ class TestVersaoMaisRecente:
 
     def test_protocolos_diferentes_convivem(self):
         assert len(versao_mais_recente([comunicado("10"), comunicado("11")])) == 2
+
+
+class TestDataReferenciaPlausivel:
+
+    def test_mantem_data_normal_e_evento_anunciado_com_antecedencia(self):
+        entrega = date(2026, 9, 1)
+        assert data_referencia_plausivel(date(2026, 8, 15), entrega) == date(2026, 8, 15)
+        assert data_referencia_plausivel(date(2027, 3, 1), entrega) == date(2027, 3, 1)
+
+    def test_descarta_digitacao_errada(self):
+        # Visto no IPE: 2925-11-06.
+        assert data_referencia_plausivel(date(2925, 11, 6), date(2025, 11, 6)) is None
+        assert data_referencia_plausivel(date(1900, 1, 1), date(2025, 11, 6)) is None
+
+    def test_ausente_continua_ausente(self):
+        assert data_referencia_plausivel(None, date(2026, 9, 1)) is None

@@ -30,6 +30,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
+    ProventoContabilEntity,
     TickerEntity,
 )
 from app.dominio.comunicado import Comunicado
@@ -42,6 +43,7 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
+from app.dominio.provento import RegistroProvento
 from app.dominio.serie_historica import CandleB3
 from app.dominio.texto import normalizar
 from app.dominio.validacao_acoes import conferir_acoes
@@ -274,6 +276,7 @@ class RepositorioFatoContabilSql:
                 "dt_fim_exerc": linha.dt_fim_exerc,
                 "versao": versao,
                 "cd_conta": linha.cd_conta,
+                "coluna_df": linha.coluna_df,
                 "ds_conta": linha.ds_conta[:200] if linha.ds_conta else None,
                 "vl_conta": linha.vl_conta,
                 "conta_fixa": linha.conta_fixa,
@@ -310,6 +313,10 @@ class RepositorioIndicadorSql:
         "cnpj",
         "lucro_liquido",
         "patrimonio_liquido",
+        "ativo_total",
+        "ativo_circulante",
+        "passivo_circulante",
+        "lucro_bruto",
         "lucro_liquido_controlador",
         "participacao_nao_controladores",
         "receita_liquida",
@@ -344,6 +351,10 @@ class RepositorioIndicadorSql:
                 "tipo_periodo": i.tipo_periodo,
                 "lucro_liquido": i.lucro_liquido,
                 "patrimonio_liquido": i.patrimonio_liquido,
+                "ativo_total": i.ativo_total,
+                "ativo_circulante": i.ativo_circulante,
+                "passivo_circulante": i.passivo_circulante,
+                "lucro_bruto": i.lucro_bruto,
                 "lucro_liquido_controlador": i.lucro_liquido_controlador,
                 "participacao_nao_controladores": i.participacao_nao_controladores,
                 "receita_liquida": i.receita_liquida,
@@ -442,6 +453,12 @@ class RepositorioSeriesSql:
                 "volume": candle.volume,
                 "numero_negocios": candle.numero_negocios,
                 "volume_financeiro": candle.volume_financeiro,
+                "especificacao": candle.especificacao,
+                "marca_ex": candle.marca_ex,
+                "fator_cotacao": candle.fator_cotacao,
+                "preco_medio": candle.preco_medio,
+                "melhor_oferta_compra": candle.melhor_oferta_compra,
+                "melhor_oferta_venda": candle.melhor_oferta_venda,
             }
             for candle in candles
         ]
@@ -451,7 +468,40 @@ class RepositorioSeriesSql:
             registros,
             (
                 "abertura", "maxima", "minima", "fechamento", "volume",
-                "numero_negocios", "volume_financeiro",
+                "numero_negocios", "volume_financeiro", "especificacao", "marca_ex",
+                "fator_cotacao", "preco_medio", "melhor_oferta_compra", "melhor_oferta_venda",
+            ),
+        )
+
+
+class RepositorioProventoSql:
+    """provento_contabil (infra V16): um periodo por (cnpj, tipo_doc, fim)."""
+
+    def salvar(self, db: Any, registros: Sequence[RegistroProvento]) -> int:
+        linhas = [
+            {
+                "cnpj": r.cnpj,
+                "tipo_doc": r.periodo.tipo_doc,
+                "dt_ini_exerc": r.periodo.dt_ini,
+                "dt_fim_exerc": r.periodo.dt_fim,
+                "versao": r.periodo.versao,
+                "data_entrega": r.data_entrega,
+                "jcp": r.periodo.jcp,
+                "dividendos": r.periodo.dividendos,
+                "acoes_ex_tesouraria": r.acoes_ex_tesouraria,
+                "por_acao": r.por_acao,
+                "origem": "CVM_DVA",
+                "cobertura_json": r.cobertura(),
+            }
+            for r in registros
+        ]
+        return _upsert(
+            db,
+            ProventoContabilEntity,
+            linhas,
+            (
+                "dt_ini_exerc", "versao", "data_entrega", "jcp", "dividendos",
+                "acoes_ex_tesouraria", "por_acao", "cobertura_json",
             ),
         )
 

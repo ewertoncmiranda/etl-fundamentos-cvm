@@ -1,8 +1,15 @@
-"""Parser do COTAHIST: registro fixo de 245 caracteres, latin-1."""
+"""Parser do COTAHIST: registro fixo de 245 caracteres, latin-1.
+
+Posicoes (1-based) do layout oficial da B3: ESPECI 40-49, PREABE 57-69,
+PREMAX 70-82, PREMIN 83-95, PREMED 96-108, PREULT 109-121, PREOFC 122-134,
+PREOFV 135-147, TOTNEG 148-152, QUATOT 153-170, VOLTOT 171-188,
+FATCOT 211-217.
+"""
 
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from datetime import datetime
 from decimal import Decimal
@@ -26,6 +33,30 @@ def _inteiro(texto: str) -> int:
 
 def _decimal_centavos(texto: str) -> Decimal:
     return Decimal(_inteiro(texto)) / Decimal(100)
+
+
+# Sufixo do ESPECI no dia ex: EJ (ex-JCP), ED (ex-dividendo), EB
+# (ex-bonificacao), ES (ex-subscricao), EG, EX, ER e combinacoes (EDJ, EDB,
+# EJS...). Visto no COTAHIST_A2026: 481 EJ, 253 ED, 24 EG, 22 EB no BDI 02.
+_MARCA_EX = re.compile(r"^E[BDGJRSX]{1,3}$")
+
+
+def _marca_ex(especificacao: str) -> str | None:
+    for token in especificacao.split():
+        if _MARCA_EX.match(token):
+            return token
+    return None
+
+
+def _preco(texto: str, fator: int) -> Decimal:
+    """R$ por acao: o COTAHIST cota alguns papeis por lote (FATCOT 1.000 na
+    GOLL54, 1.000.000 na AZUL53); sem dividir, o preco sai multiplicado."""
+    valor = _decimal_centavos(texto)
+    return valor / fator if fator > 1 else valor
+
+
+def _preco_ou_nulo(texto: str, fator: int) -> Decimal | None:
+    return _preco(texto, fator) if _inteiro(texto) else None
 
 
 class LeitorCotahist:
@@ -59,17 +90,25 @@ class LeitorCotahist:
                 continue
             if linha[24:27] != MERCADO_LOTE_PADRAO or linha[10:12] not in bdis_aceitos:
                 continue
+            fator = max(_inteiro(linha[210:217]), 1)
+            especificacao = linha[39:49].strip()
             resultado.append(
                 CandleB3(
                     simbolo=simbolo,
                     data_pregao=datetime.strptime(linha[2:10], "%Y%m%d").date(),
-                    abertura=_decimal_centavos(linha[56:69]),
-                    maxima=_decimal_centavos(linha[69:82]),
-                    minima=_decimal_centavos(linha[82:95]),
-                    fechamento=_decimal_centavos(linha[108:121]),
+                    abertura=_preco(linha[56:69], fator),
+                    maxima=_preco(linha[69:82], fator),
+                    minima=_preco(linha[82:95], fator),
+                    fechamento=_preco(linha[108:121], fator),
                     numero_negocios=_inteiro(linha[147:152]),
                     volume=_inteiro(linha[152:170]),
                     volume_financeiro=_decimal_centavos(linha[170:188]),
+                    especificacao=especificacao or None,
+                    marca_ex=_marca_ex(especificacao),
+                    fator_cotacao=fator,
+                    preco_medio=_preco_ou_nulo(linha[95:108], fator),
+                    melhor_oferta_compra=_preco_ou_nulo(linha[121:134], fator),
+                    melhor_oferta_venda=_preco_ou_nulo(linha[134:147], fator),
                 )
             )
         return resultado

@@ -19,7 +19,9 @@ from app.dominio.modelo import (
     BPA,
     BPP,
     DFC_MI,
+    DMPL,
     DRE,
+    DVA,
     GRUPO_CONSOLIDADO,
     GRUPO_INDIVIDUAL,
     TIPO_DOC_DFP,
@@ -33,7 +35,10 @@ from app.dominio.texto import normalizar
 from app.excecoes.excecoes import FonteIndisponivel
 
 # Nome interno da demonstracao -> sufixo do arquivo da CVM
-SUFIXO_DEMONSTRACAO = {BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI"}
+# DVA e DMPL: plano LAC (L1, infra V16) - proventos por periodo e dado bruto.
+SUFIXO_DEMONSTRACAO = {
+    BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DVA: "DVA", DMPL: "DMPL",
+}
 
 PACOTE_DFP = "DFP"
 PACOTE_FCA = "FCA"
@@ -298,7 +303,7 @@ class FonteCvm:
                     # misturar os dois produz contas duplicadas e um resultado
                     # silenciosamente errado.
                     if (
-                        demonstracao in (DRE, DFC_MI)
+                        demonstracao in (DRE, DFC_MI, DVA, DMPL)
                         and convertida.dt_ini_exerc != date(referencia.year, 1, 1)
                     ):
                         continue
