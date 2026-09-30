@@ -25,6 +25,10 @@ BPA = "BPA"
 BPP = "BPP"
 DRE = "DRE"
 DFC_MI = "DFC_MI"
+# Plano LAC (infra V16): DVA traz JCP e dividendos por periodo (L1); a DMPL
+# entra so como dado bruto, com a coluna do patrimonio em coluna_df.
+DVA = "DVA"
+DMPL = "DMPL"
 
 TIPO_DOC_DFP = "DFP"
 TIPO_DOC_ITR = "ITR"
@@ -58,6 +62,8 @@ class LinhaContabil:
     demonstracao: str
     dt_ini_exerc: date
     dt_fim_exerc: date
+    # Coluna da DMPL (capital social, reservas...); vazia nas demais.
+    coluna_df: str = ""
 
     def e_descendente_de(self, outra: LinhaContabil) -> bool:
         """2.01.04.01 e descendente de 2.01.04; 2.01.05 nao e."""
@@ -170,6 +176,11 @@ class Indicadores:
     # insumos
     lucro_liquido: Decimal | None = None
     patrimonio_liquido: Decimal | None = None
+    # Plano LAC (L6, infra V16): qualidade (liquidez, margem bruta, Piotroski).
+    ativo_total: Decimal | None = None
+    ativo_circulante: Decimal | None = None
+    passivo_circulante: Decimal | None = None
+    lucro_bruto: Decimal | None = None
     # LPA, VPA e ROE sao calculados sobre a parcela do controlador, que e a
     # convencao das referencias de mercado. Sem isso a WEG sai com ROE 36,5%
     # contra 33,2% do Fundamentus - diferenca de participacao de terceiros.

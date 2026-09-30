@@ -106,6 +106,24 @@ class TestMontadorDeIndicadores:
         assert indicadores.roe is not None
         assert indicadores.cobertura["acoes_ex_tesouraria"]["estrategia"] == "ausente"
 
+    def test_contas_de_qualidade_no_plano_geral(self, linhas_wege3):
+        indicadores = montador().montar("WEGE3", documento(linhas_wege3), capital())
+
+        assert indicadores.ativo_circulante == Decimal("26910845000")
+        # O fixture da WEG nao tem Ativo Total nem Resultado Bruto: ficam
+        # nulos com o motivo, nunca 0.
+        assert indicadores.ativo_total is None
+        assert indicadores.cobertura["ativo_total"]["estrategia"] == "ausente"
+        assert indicadores.lucro_bruto is None
+
+    def test_banco_nao_recebe_contas_de_circulante(self, linhas_banco):
+        indicadores = montador().montar("BBAS3", documento(linhas_banco), None)
+
+        assert indicadores.ativo_circulante is None
+        assert indicadores.passivo_circulante is None
+        assert indicadores.lucro_bruto is None
+        assert indicadores.cobertura["ativo_circulante"]["estrategia"] == "nao-aplicavel"
+
     def test_capex_e_sempre_declarado_como_nao_extraivel(self, linhas_wege3):
         indicadores = montador().montar("WEGE3", documento(linhas_wege3), capital())
 

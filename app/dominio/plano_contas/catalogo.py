@@ -42,6 +42,13 @@ _ESTAVEIS = (
         observacao="codigo varia: 2.03 WEGE3, 2.07 BBAS3, 2.08 ITUB4",
     ),
     RegraConta(
+        metrica="ativo_total",
+        demonstracao=BPA,
+        rotulos=("ativo total",),
+        codigos=("1",),
+        observacao="plano LAC (L6): base de accruals, giro e Piotroski; 216 empresas com o rotulo",
+    ),
+    RegraConta(
         metrica="lucro_liquido_controlador",
         demonstracao=DRE,
         rotulos=("atribuido a socios da empresa controladora",),
@@ -112,6 +119,33 @@ _SO_GERAL = (
         planos=(PLANO_GERAL,),
         somar=True,
         observacao="circulante + nao circulante; banco nao tem divida nesse sentido",
+    ),
+    # Plano LAC (L6): liquidez corrente e margem bruta para qualidade. No
+    # FINANCEIRO, 1.01 e caixa, 2.01 e passivo financeiro e 3.03 e resultado
+    # bruto de intermediacao - nada disso e o conceito da empresa comum.
+    RegraConta(
+        metrica="ativo_circulante",
+        demonstracao=BPA,
+        rotulos=("ativo circulante",),
+        codigos=("1.01",),
+        planos=(PLANO_GERAL,),
+        observacao="1.01 no banco e Caixa e Equivalentes",
+    ),
+    RegraConta(
+        metrica="passivo_circulante",
+        demonstracao=BPP,
+        rotulos=("passivo circulante",),
+        codigos=("2.01",),
+        planos=(PLANO_GERAL,),
+        observacao="2.01 no banco e Passivos Financeiros",
+    ),
+    RegraConta(
+        metrica="lucro_bruto",
+        demonstracao=DRE,
+        rotulos=("resultado bruto",),
+        codigos=("3.03",),
+        planos=(PLANO_GERAL,),
+        observacao="3.03 no banco e Resultado Bruto de Intermediacao Financeira",
     ),
 )
 

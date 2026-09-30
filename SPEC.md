@@ -208,3 +208,80 @@ Regressão de referência (WEGE3, DFP 2025): LPA 1,5197 · VPA 4,1512 · ROE 36,
 ## 11. Aviso regulatório
 
 Este serviço produz **indicador contábil**, não rótulo de decisão. Ver `gerar-insights#ISS-F6` sobre a Res. CVM 20/2021: nada aqui deve ser apresentado como recomendação de investimento.
+
+## Plano LAC: 9 lacunas de assertividade (proposta de 30-09-2026, EM AVALIAÇÃO)
+
+Plano completo, fontes e a migração única **V16** em `infra-b3-ecossytem/SPEC.md`, seção Plano LAC. Este serviço cobre **L1, L2, L3, L4, L6 (contas), L8 (datas) e os campos novos do COTAHIST (LAC-ETL-7)**. Só COTAHIST e CVM.
+
+### LAC-ETL-1: DVA e DMPL (L1, L6)
+
+- Ler `dfp_cia_aberta_DVA_{con,ind}` e `dfp_cia_aberta_DMPL_{con,ind}` (e os equivalentes do ITR), que já estão no cache e hoje são ignorados. Mesma escolha de grupo dos outros documentos: consolidado quando preenchido, senão individual.
+- Gravar em `fato_contabil` com `demonstracao = 'DVA' | 'DMPL'`. Na DMPL, `COLUNA_DF` vai para a nova coluna `coluna_df`; nas outras demonstrações fica `''`. A entidade `FatoContabilEntity` e o `salvar_linhas` passam a incluir a coluna.
+- Derivar `provento_contabil`:
+  - `jcp`: conta DVA pelo rótulo "juros sobre o capital próprio" (código 7.08.04.01 como desempate), com a mesma estratégia rótulo → código do resolvedor.
+  - `dividendos`: rótulo "dividendos" (7.08.04.02).
+  - **ITR vem acumulado no ano**: o trimestre isolado é a diferença para o ITR anterior do mesmo ano (o 1º trimestre é o próprio acumulado); o 4º trimestre sai da DFP menos o 3º ITR.
+  - `por_acao = total / acoes_ex_tesouraria` da composição de capital do mesmo documento.
+  - `data_entrega`: DT_RECEB do índice de entregas (`datas_de_entrega`), como já é feito para os indicadores.
+  - Valor ausente fica `NULL` com o motivo em `cobertura_json`, nunca 0 (mesma regra de 29-09-2026 para o lucro).
+- Conferência: WEG DFP 2024 consolidada = JCP R$ 1.134.258 mil e dividendos R$ 2.056.668 mil (visto no arquivo da CVM em 30-09-2026).
+
+### LAC-ETL-2: eventos corporativos (L2)
+
+O FRE aberto não tem tabela de desdobramentos, mas o **COTAHIST marca o dia ex** no ESPECI (LAC-ETL-7). Três evidências:
+
+1. **Data (COTAHIST):** primeiro pregão com marca de evento societário (EB bonificação, EG, EX; significado de cada marca conferido no layout oficial da B3 antes de codificar). Várias marcas seguidas contam como um evento só (RCSL3: EB em 10 e 11-03-2026, um evento).
+2. **Proporção (CVM):** entre as composições de capital antes e depois dessa data, `r = ações depois / ações antes`, por espécie (ON para tickers final 3; PN para 4, 5 e 6; units, final 11, ficam de fora).
+3. **Confirmação (preço):** `fechamento anterior / abertura do dia ex` dentro de 3% de `r`.
+
+Com marca e proporção batendo → `evento_corporativo` com `origem = 'INFERIDO_CVM_COTAHIST'`, `data_efeito` no dia marcado e `evidencia_json` com os três números; a confirmação de preço entra na `confianca`. Salto de preço sem marca **não** vira evento: é queda real, e o backtest continua tratando como hoje (regra dos 40%). `origem = 'MANUAL'` corrige o que escapar.
+
+Comando novo: `--eventos-corporativos [--ano ...]`, idempotente, registrando `EVENTOS_CORPORATIVOS` em `etl_execucao`.
+
+### LAC-ETL-3: histórico trimestral desde 2011 (L3)
+
+- O `CarregarTtm` monta hoje **só o trimestre mais recente de cada ano** (`escolher_trios` pega o ITR mais recente). Para o histórico, montar o trio de **cada** trimestre (março, junho e setembro de cada ano, mais o anual), mantendo a regra do mesmo grupo.
+- Carregar ITR 2011–2023 (download novo; o mesmo leitor). Grava `indicador_fundamentalista` com `tipo_periodo = 'TTM'` por trimestre, com a `data_entrega` do ITR.
+- Tratar o exercício social fora do ano civil (RAIZ4, de abril a março), pendência aberta em 28-09-2026: o acumulado do ITR começa no início do exercício, não em 1º de janeiro.
+
+### LAC-ETL-4: mais anos (L4)
+
+- DFP 2010–2015 e COTAHIST 2009–2015 pelos comandos atuais (`--ano`, `--cotahist --ano`).
+- Risco a checar antes do backfill: layout dos CSVs da CVM de 2010–2015 e dos arquivos COTAHIST antigos (mudanças de cabeçalho ou de escala). Testar primeiro um ano de cada.
+
+### LAC-ETL-5: contas de qualidade (L6)
+
+Novas regras no catálogo (plano GERAL; bancos e seguradoras ficam `nao-aplicavel`, como hoje):
+
+| Métrica | Demonstração | Rótulo | Código (desempate) |
+|---|---|---|---|
+| `ativo_total` | BPA | "ativo total" | 1 |
+| `ativo_circulante` | BPA | "ativo circulante" | 1.01 |
+| `passivo_circulante` | BPP | "passivo circulante" | 2.01 |
+| `lucro_bruto` | DRE | "resultado bruto" | 3.03 |
+
+### LAC-ETL-6: datas do IPE (L8)
+
+36 comunicados têm `data_referencia` inválida (anterior a 2000 ou mais de um ano depois da entrega; há uma em 2925). Na carga: data de referência fora da faixa vira `NULL`, com aviso no log; `data_entrega` segue intacta e é a data usada nos fatores de evento.
+
+### LAC-ETL-7: campos do COTAHIST hoje ignorados (L1, L2, L5)
+
+Achados da Sessão 01, conferidos no COTAHIST 2026 em 30-09-2026. O `leitor_cotahist` passa a ler e gravar em `cotacao_b3_diaria` (colunas novas da V16):
+
+| Campo (posições) | Coluna | Uso |
+|---|---|---|
+| ESPECI (40-49) | `especificacao`, `marca_ex` (sufixo EJ, ED, EB, EG, ES, EDJ…) | Data ex de proventos (L1) e de eventos societários (L2) |
+| FATCOT (211-217) | `fator_cotacao` | **Dividir abertura, máxima, mínima, fechamento e preço médio pelo fator ao gravar.** Hoje AZUL53 (1.000.000), GOLL54 (1.000) e IBOV11 (100) estão gravados multiplicados |
+| PREMED (96-108) | `preco_medio` | Preço médio ponderado (VWAP) |
+| PREOFC / PREOFV (122-147) | `melhor_oferta_compra`, `melhor_oferta_venda` | Spread no fechamento, para custo e liquidez (mediana 0,57%, p90 3,4% segundo a Sessão 01) |
+
+- A correção do FATCOT é um **defeito atual**, que vale mesmo sem o resto do plano.
+- Recarga de 2016–2026 pelo cache, sem download.
+
+### Aceite
+
+- WEG, ITUB4 e TIMS3: `provento_contabil` bate com a DVA publicada em 3 anos escolhidos.
+- AZUL53 e GOLL54 com preço dividido pelo FATCOT; RCSL3 com `marca_ex = 'EB'` em 10-03-2026.
+- Lista de desdobramentos e grupamentos conhecidos, montada na revisão, detectada com a data certa; nenhum evento gravado com confiança abaixo do limiar.
+- TTM trimestral de 2011 a 2026 para os ativos do universo, sem trimestre repetido e sem misturar grupos.
+- pytest, ruff e mypy verdes; nenhum valor 0 gravado no lugar de conta ausente.

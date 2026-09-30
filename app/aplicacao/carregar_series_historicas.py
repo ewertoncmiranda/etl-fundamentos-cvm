@@ -27,6 +27,8 @@ class CarregarSeriesHistoricas:
         repositorio_execucao: RepositorioExecucao,
         logger: Logger,
         repositorio_identidade=None,
+        verificador_de_schema=None,
+        nome_do_banco: str | None = None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -34,6 +36,8 @@ class CarregarSeriesHistoricas:
         self._execucao = repositorio_execucao
         self._logger = logger
         self._identidade = repositorio_identidade
+        self._verificador = verificador_de_schema
+        self._nome_do_banco = nome_do_banco
 
     def executar(
         self,
@@ -42,6 +46,9 @@ class CarregarSeriesHistoricas:
         forcar: bool = False,
     ) -> ResultadoSeries:
         resultado = ResultadoSeries()
+        if self._verificador is not None:
+            with self._uow.transacao() as db:
+                self._verificador.conferir(db, self._nome_do_banco)
         simbolos = self._resolver_universo(simbolos_pedidos)
         if simbolos is None:
             self._logger.info(
