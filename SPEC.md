@@ -1,17 +1,21 @@
 # SPEC — etl-fundamentos-cvm
 
-**Versão:** 1.0.0 · **Status:** Ativa · **Atualizada em:** 2026-09-26
+**Versão:** 1.0.0 · **Status:** IMPLEMENTADO · **Atualizada em:** 2026-09-27
 **Público:** desenvolvedores humanos e agentes de IA.
 
 ---
+
+## Corte e estados comuns
+
+Data de corte: **2026-09-27** (America/Sao_Paulo). `PLANEJADO`: ainda não executado; `EM ANDAMENTO`: entrega parcial; `IMPLEMENTADO`: código ou decisão presente, sem confirmação integral nesta revisão; `VERIFICADO`: aceite demonstrado por verificação registrada; `BLOQUEADO`: dependência impeditiva identificada. Datas anteriores permanecem como histórico. Resolver um problema significa implementar sua correção; funcionalidades descontinuadas mantêm o ID e registram a resolução. Evidências antigas não são nova validação operacional.
 
 ## 1. Como usar este arquivo (protocolo para agentes)
 
 Mesmo protocolo dos repositórios irmãos (`gerar-insights`, `gestor-ativos-brutos`, `infra-b3-ecossytem`).
 
 1. Leia as seções 2 a 6 antes de mudar código. Toda mudança cita um `REQ-`, `NFR-`, `ISS-` ou `TASK-`.
-2. **IDs são estáveis** — nunca renumere nem apague. Para aposentar, use status `DESCARTADO` com justificativa.
-3. Status válidos: `ABERTO`, `EM_ANDAMENTO`, `BLOQUEADO`, `CONCLUIDO`, `DESCARTADO` para tarefas e problemas; `IMPLEMENTADO`, `PARCIAL`, `PLANEJADO` para requisitos.
+2. **IDs são estáveis** — nunca renumere nem apague. Para aposentar, use status `IMPLEMENTADO (descontinuado)` com justificativa.
+Estados válidos de requisitos, tarefas, problemas e decisões: `PLANEJADO`, `EM ANDAMENTO`, `IMPLEMENTADO`, `VERIFICADO`, `BLOQUEADO`. Descontinuação é uma resolução descrita, não um estado adicional.
 4. Decisão de projeto vira um `DEC-` na seção 7. Não aja sobre decisão aberta sem registrar a escolha.
 5. Critérios de aceite em **Dado / Quando / Então**, e devem virar teste automatizado.
 6. **Mudança no de-para (seção 5) altera resultado financeiro.** Exige atualizar as fixtures de regressão e esta spec no mesmo PR.
@@ -22,6 +26,16 @@ Fluxo: `Spec → Plano → Tarefas → Implementação → Verificação → Atu
 Vocabulário: [`infra-b3-ecossytem/GLOSSARIO.md`](../infra-b3-ecossytem/GLOSSARIO.md).
 
 ---
+
+## 1A. Coordenação entre agentes (estado em 2026-10-04)
+
+**Hub:** `infra-b3-ecossytem/SPEC.md` seção 1A — fila única, contratos, handoff e diário. Leia antes de codar; atualize lá ao pegar e ao fechar tarefa. Em conflito com seções antigas abaixo, vale o hub e esta seção.
+
+- **Dono neste repo:** fundamentos (DFP), TTM (ITR), comunicados (IPE), COTAHIST, proventos contábeis (DVA), conciliação BRAPI×COTAHIST. Escreve `fato_contabil`, `indicador_fundamentalista`, `comunicado_cvm`, `cotacao_b3_diaria`, `provento_contabil`, `etl_execucao`; **não cria tabelas** — o `VerificadorDeSchema` exige as colunas da V16.
+- **Comandos hoje (composição):** carga padrão (DFP), `--ttm`, `--comunicados`, `--cotahist`, proventos contábeis, `--conciliar` (compara foto BRAPI com COTAHIST). Rodados pela rotina da manhã da infra; TASK-E09 (agendar) é coberta por ela — confirmar e fechar.
+- **Fila local:** LAC-ETL-1, 5, 6, 7 `IMPLEMENTADO` (f9832b0). `PLANEJADO`: LAC-ETL-2 (eventos corporativos), LAC-ETL-3 (TTM trimestral desde 2011), LAC-ETL-4 (anos antigos; testar 1 ano de cada antes). Backfill e `setor_grupo`: LAC-INFRA-2/3 no hub.
+- **Atenção:** a imagem `etl:develop` publicada pode não incluir `--conciliar`/proventos; rebuild/push antes de a rotina depender deles.
+- **Arquivo não commitado de outra sessão:** `app/adaptadores/mensageria/publicador_sqs.py` (contratos) — não editar nem commitar sem o dono.
 
 ## 2. Visão do produto
 
@@ -114,16 +128,16 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | REQ-05 | Publicar evento de fundamentos atualizados | IMPLEMENTADO |
 | REQ-06 | Carregar ITR e derivar TTM | IMPLEMENTADO (2026-09-26) |
 | REQ-08 | Carregar série diária bruta do COTAHIST/B3 apenas para ativos monitorados | IMPLEMENTADO (2026-09-26) |
-| REQ-07 | Suportar plano de contas de seguradora | PARCIAL (código existe, não exercitado) |
+| REQ-07 | Suportar plano de contas de seguradora | EM ANDAMENTO (código existe, não exercitado) |
 | REQ-09 | Carregar comunicados oficiais da base IPE (`--comunicados`) para os tickers com CNPJ em `cvm_ticker`, gravar em `comunicado_cvm` (`infra#CTR-08`) e publicar `sqs-comunicados-publicados` (`infra#CTR-09`) só com o que é novo | IMPLEMENTADO (2026-09-26) |
 
 | ID | Não funcional | Status |
 |---|---|---|
-| NFR-01 | Domínio testável sem banco, rede ou arquivo | ATENDIDO |
-| NFR-02 | Execução repetida produz o mesmo resultado | ATENDIDO |
-| NFR-03 | Nenhum segredo na imagem publicada | ATENDIDO (`.dockerignore`, usuário não-root) |
-| NFR-04 | CI barra publicação sem lint, mypy e testes | ATENDIDO |
-| NFR-05 | Erro transitório não aborta os demais anos | ATENDIDO |
+| NFR-01 | Domínio testável sem banco, rede ou arquivo | IMPLEMENTADO |
+| NFR-02 | Execução repetida produz o mesmo resultado | IMPLEMENTADO |
+| NFR-03 | Nenhum segredo na imagem publicada | IMPLEMENTADO (`.dockerignore`, usuário não-root) |
+| NFR-04 | CI barra publicação sem lint, mypy e testes | IMPLEMENTADO |
+| NFR-05 | Erro transitório não aborta os demais anos | IMPLEMENTADO |
 
 ### 6.1 Critérios de aceite
 
@@ -153,7 +167,7 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | DEC-E02 | Fonte da quantidade de ações | **FRE**, por ter unidade consistente |
 | DEC-E03 | LPA/VPA/ROE: consolidado ou controlador? | **Controlador**, que é o que o mercado publica |
 | DEC-E04 | Gravar P/L e P/VP? | **Não.** Derivados na leitura pelo `gestor`, senão nascem obsoletos |
-| DEC-E05 | Quem cria as tabelas? | `infra-b3-ecossytem/mysql-init`. Este app não faz DDL. Herda `infra#DEC-01`, que segue ABERTO |
+| DEC-E05 | Quem cria as tabelas? | IMPLEMENTADO — somente `infra-b3-ecossytem/mysql-migrations`, executado pelo Flyway. Este app apenas verifica tabelas e faz DML; `infra#DEC-01` definida em 2026-09-27 |
 | DEC-E06 | Carregar todas as companhias ou só as monitoradas? | **Só as monitoradas.** Um lugar só para escolher ativo |
 | DEC-E07 | Chave dos comunicados | **`numProtocolo` do link**, não `Protocolo_Entrega` (vazio em 501 linhas de 2026). Tabela guarda CNPJ; ticker na leitura |
 | DEC-E08 | Comunicados: onde descobrir o CNPJ do ticker | **`cvm_ticker`** (mantida pela carga de fundamentos), em vez de baixar o FCA de novo |
@@ -164,12 +178,12 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 
 | ID | Sev. | Problema | Status |
 |---|---|---|---|
-| ISS-E01 | Alto | Sem TTM: só exercício fechado. Trocar a base do LPA move o número 40%+ em empresa volátil, então o Graham **não** deve consumir estes dados ainda | CONCLUIDO (2026-09-26: DFP + ITR atual − ITR comparável) |
-| ISS-E02 | Médio | `capex` não é extraível (contas `6.02.xx` são texto livre). FCL usa investimento total como proxy | ABERTO |
-| ISS-E03 | Médio | ROIC usa alíquota nominal e definição própria de capital investido; diverge do Fundamentus (31,3% × 24,3% na WEG) | ABERTO |
-| ISS-E04 | Médio | `RENT3` diverge 43,8% do Fundamentus sem explicação; a DRE extraída fecha internamente | ABERTO |
-| ISS-E05 | Baixo | `PLANO_SEGURADORA` não exercitado com dado real | ABERTO |
-| ISS-E06 | Baixo | Ticker de companhia sem DFP consolidada cai para individual sem sinalizar na resposta | ABERTO |
+| ISS-E01 | Alto | Sem TTM: só exercício fechado. Trocar a base do LPA move o número 40%+ em empresa volátil, então o Graham **não** deve consumir estes dados ainda | IMPLEMENTADO (2026-09-26: DFP + ITR atual − ITR comparável) |
+| ISS-E02 | Médio | `capex` não é extraível (contas `6.02.xx` são texto livre). FCL usa investimento total como proxy | PLANEJADO |
+| ISS-E03 | Médio | ROIC usa alíquota nominal e definição própria de capital investido; diverge do Fundamentus (31,3% × 24,3% na WEG) | PLANEJADO |
+| ISS-E04 | Médio | `RENT3` diverge 43,8% do Fundamentus sem explicação; a DRE extraída fecha internamente | PLANEJADO |
+| ISS-E05 | Baixo | `PLANO_SEGURADORA` não exercitado com dado real | PLANEJADO |
+| ISS-E06 | Baixo | Ticker de companhia sem DFP consolidada cai para individual sem sinalizar na resposta | PLANEJADO |
 
 ---
 
@@ -177,15 +191,15 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 
 | ID | Tarefa | Depende | Status |
 |---|---|---|---|
-| TASK-E01 | Carregar ITR e derivar TTM (DRE do ITR é acumulada no ano; trimestre sai por subtração) | REQ-06 | CONCLUIDO (2026-09-26) |
-| TASK-E07 | Ingerir COTAHIST anual com ETag, filtro de ativos monitorados e upsert em `serie_historica` | REQ-08 | CONCLUIDO (2026-09-26) |
-| TASK-E02 | Fixture de seguradora e validação do plano | ISS-E05 | ABERTO |
-| TASK-E03 | Investigar a divergência de `RENT3` | ISS-E04 | ABERTO |
-| TASK-E04 | Expor série histórica de indicadores | — | ABERTO |
-| TASK-E05 | Integrar proventos (dividendos, JCP) da B3 | — | ABERTO |
-| TASK-E06 | Fixar convenção de ROIC e documentá-la | ISS-E03 | ABERTO |
-| TASK-E08 | Carga de comunicados da base IPE com ETag, dedupe por protocolo, upsert por versão e evento por ticker | REQ-09 | CONCLUIDO (2026-09-26) |
-| TASK-E09 | Agendar `--comunicados` diariamente (cron do host ou GitHub Actions); sem novidade custa 2 HEAD | REQ-09 | ABERTO |
+| TASK-E01 | Carregar ITR e derivar TTM (DRE do ITR é acumulada no ano; trimestre sai por subtração) | REQ-06 | IMPLEMENTADO (2026-09-26) |
+| TASK-E07 | Ingerir COTAHIST anual com ETag, filtro de ativos monitorados e upsert em `serie_historica` | REQ-08 | IMPLEMENTADO (2026-09-26) |
+| TASK-E02 | Fixture de seguradora e validação do plano | ISS-E05 | PLANEJADO |
+| TASK-E03 | Investigar a divergência de `RENT3` | ISS-E04 | PLANEJADO |
+| TASK-E04 | Expor série histórica de indicadores | — | PLANEJADO |
+| TASK-E05 | Integrar proventos (dividendos, JCP) da B3 | — | PLANEJADO |
+| TASK-E06 | Fixar convenção de ROIC e documentá-la | ISS-E03 | PLANEJADO |
+| TASK-E08 | Carga de comunicados da base IPE com ETag, dedupe por protocolo, upsert por versão e evento por ticker | REQ-09 | IMPLEMENTADO (2026-09-26) |
+| TASK-E09 | Agendar `--comunicados` diariamente (cron do host ou GitHub Actions); sem novidade custa 2 HEAD | REQ-09 | PLANEJADO |
 
 ---
 
@@ -208,6 +222,15 @@ Regressão de referência (WEGE3, DFP 2025): LPA 1,5197 · VPA 4,1512 · ROE 36,
 ## 11. Aviso regulatório
 
 Este serviço produz **indicador contábil**, não rótulo de decisão. Ver `gerar-insights#ISS-F6` sobre a Res. CVM 20/2021: nada aqui deve ser apresentado como recomendação de investimento.
+
+## Revisão integrada de 2026-09-27
+
+| Entrega | Estado | Evidência e limite |
+|---|---|---|
+| Proprietário único do schema | IMPLEMENTADO | Infra/Flyway: V1 bootstrap, V11 inbox; serviços não executam migrations |
+| Eventos e recomendações | IMPLEMENTADO | schemas canônicos em infra/contracts; enum gerado em Java, Python e JS; versões desconhecidas ficam para DLQ |
+| Leituras HTTP e idempotência | IMPLEMENTADO | GET sem persistência/publicação; inbox e efeitos na mesma transação; ACK posterior ao commit |
+| Verificação desta entrega | EM ANDAMENTO | Resultados registrados em infra/VERIFICACAO-2026-09-27.md; não representa deploy no banco em uso |
 
 ## Plano LAC: 9 lacunas de assertividade (proposta de 30-09-2026, EM AVALIAÇÃO)
 
