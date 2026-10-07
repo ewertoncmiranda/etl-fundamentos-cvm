@@ -1,10 +1,8 @@
 """Confere que as tabelas existem antes de comecar a carga.
 
 Sem isso, a primeira consulta estoura um traceback de SQLAlchemy que nao diz
-o que fazer. O schema e criado por `infra-b3-ecossytem/mysql-init`, que o
-MySQL so executa na primeira criacao do volume - entao banco que ja existia
-antes das tabelas da CVM simplesmente nao as tem (infra#ISS-03), e esse e o
-modo de falha mais provavel na pratica.
+o que fazer. O schema e criado pela infra via Flyway/db-migrate; este ETL nao
+cria nem atualiza tabelas, apenas valida se o banco esta no contrato esperado.
 """
 
 from __future__ import annotations
@@ -100,8 +98,8 @@ class VerificadorDeSchema:
                 f"O banco '{nome_do_banco}' nao tem {len(faltando)} coluna(s) que este ETL grava:",
                 *(f"  - {c}" for c in faltando),
                 "",
-                "Elas vem da migracao V16 (plano LAC, infra-b3-ecossytem/SPEC.md).",
-                "Aplicar pelo db-migrate do compose da infra:",
+                "Essas colunas pertencem as migrations da infra (Flyway/db-migrate).",
+                "Aplique as migrations pelo compose da infra antes de rodar o ETL:",
                 "",
                 "  docker compose -f docker-compose-local.yml up db-migrate",
             ]
@@ -115,19 +113,16 @@ class VerificadorDeSchema:
                 "necessaria(s):",
                 *(f"  - {t}" for t in faltando),
                 "",
-                "O schema fica em infra-b3-ecossytem/mysql-init/1 - schema.sql, e o",
-                "MySQL so executa esse diretorio na PRIMEIRA criacao do volume. Um",
-                "banco criado antes destas tabelas nao as recebe sozinho.",
+                "O schema fica nas migrations do infra-b3-ecossytem e deve ser",
+                "aplicado pela infra via Flyway/db-migrate. Este ETL nao executa",
+                "migration nem cria tabelas automaticamente.",
                 "",
-                "Aplicar sem perder dado (o script e todo CREATE TABLE IF NOT EXISTS,",
-                "entao nao mexe no que ja existe):",
+                "Aplicar as migrations sem apagar dados:",
                 "",
-                "  docker exec -i mysql mysql -uspring -pspring123 minha_base \\",
-                "      < 'infra-b3-ecossytem/mysql-init/1 - schema.sql'",
+                "  docker compose -f docker-compose-local.yml up db-migrate",
                 "",
-                "Ou recriar o volume do zero, o que APAGA historico_acoes,",
-                "insight_acao e serie_historica:",
+                "Evite recriar o volume: isso apaga historico_acoes, insight_acao",
+                "e serie_historica.",
                 "",
-                "  docker compose down && docker volume rm infra-b3-ecossytem_mysql_data",
             ]
         )

@@ -232,7 +232,7 @@ class TestMontarEventos:
         )
 
         assert [e["simbolo"] for e in eventos] == ["PETR3", "PETR4"]
-        assert all(e["schemaVersion"] == 1 for e in eventos)
+        assert all(e["schemaVersion"] == "1.0" for e in eventos)
 
     def test_ticker_sem_novidade_nao_gera_evento(self):
         eventos = montar_eventos(
