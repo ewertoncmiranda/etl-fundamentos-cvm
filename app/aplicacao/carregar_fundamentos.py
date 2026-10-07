@@ -13,7 +13,7 @@ from logging import Logger
 from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import STATUS_ERRO, STATUS_PULADO, STATUS_SUCESSO, Empresa, Ticker
 from app.dominio.montador_indicadores import MontadorDeIndicadores
-from app.excecoes.excecoes import ErroPermanente, ErroTransitorio
+from app.excecoes.excecoes import ErroPermanente, ErroTransitorio, FonteIndisponivel
 from app.portas.fonte_documentos import FonteDeDocumentos
 from app.portas.publicador import PublicadorDeEventos
 from app.portas.repositorios import (
@@ -295,3 +295,14 @@ def _empresa_minima(cnpj: str, selecionados: dict[str, Ticker]) -> Empresa:
         (t.simbolo for t in selecionados.values() if t.cnpj == cnpj), cnpj
     )
     return Empresa(cnpj=cnpj, denominacao=denominacao)
+
+
+def tickers_do_ano_anterior(fonte: FonteDeDocumentos, ano: int) -> dict[str, Ticker]:
+    """FCA do ano anterior, quando o do ano nao traz os codigos de negociacao.
+
+    O FCA aberto comeca em 2010: para 2010 nao ha anterior (404), e isso nao
+    pode derrubar a carga - os CNPJs ja cadastrados cobrem o resto."""
+    try:
+        return fonte.tickers(ano - 1)
+    except FonteIndisponivel:
+        return {}

@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from logging import Logger
 
-from app.aplicacao.carregar_fundamentos import data_de_entrega
+from app.aplicacao.carregar_fundamentos import data_de_entrega, tickers_do_ano_anterior
 from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import (
     GRUPO_CONSOLIDADO,
@@ -97,7 +97,7 @@ class CarregarProventosContabeis:
         with self._uow.transacao() as db:
             conhecidos = self._cadastro.cnpjs_por_simbolo(db, simbolos)
             identidades = self._identidade.identidades(db) if self._identidade else {}
-        tickers = self._fonte.tickers(ano) or self._fonte.tickers(ano - 1)
+        tickers = self._fonte.tickers(ano) or tickers_do_ano_anterior(self._fonte, ano)
         selecionados, _ = resolver_tickers(simbolos, tickers, identidades, conhecidos)
         cnpjs = {t.cnpj for t in selecionados.values()}
         if not cnpjs:

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from logging import Logger
 
-from app.aplicacao.carregar_fundamentos import data_de_entrega
+from app.aplicacao.carregar_fundamentos import data_de_entrega, tickers_do_ano_anterior
 from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import (
     GRUPO_CONSOLIDADO,
@@ -97,9 +97,7 @@ class CarregarTtm:
             resultado.anos_pulados.append(ano)
             return
 
-        tickers = self._fonte.tickers(ano)
-        if not tickers:
-            tickers = self._fonte.tickers(ano - 1)
+        tickers = self._fonte.tickers(ano) or tickers_do_ano_anterior(self._fonte, ano)
         identidades = {}
         with self._uow.transacao() as db:
             if self._identidade is not None:
