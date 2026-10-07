@@ -11,6 +11,7 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --rotina             # tudo do dia: IPE, DFP, TTM e COTAHIST
     python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
     python main.py --proventos --ano 2024 --universo-backtest  # DVA (infra V16)
+    python main.py --eventos-corporativos   # desdobramentos etc. (todos os anos)
 
 O --rotina e o comando padrao do servico no docker compose: e o que roda
 ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
@@ -31,6 +32,7 @@ from app.config.composicao import (
     montar_carga_ttm,
     montar_caso_de_uso,
     montar_conciliacao,
+    montar_eventos_corporativos,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -93,6 +95,12 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         help="JCP e dividendos por trimestre a partir da DVA da CVM (infra V16, plano LAC)",
     )
     parser.add_argument(
+        "--eventos-corporativos",
+        action="store_true",
+        help="desdobramento, grupamento e bonificacao a partir da marca ex do COTAHIST "
+        "e da composicao de capital ja carregados (sem download); --ano restringe",
+    )
+    parser.add_argument(
         "--conciliar",
         action="store_true",
         help="compara a foto da BRAPI (17:40) com o COTAHIST e registra o veredito "
@@ -135,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if argumentos.proventos:
         return _carregar_proventos(argumentos, settings, logger)
+
+    if argumentos.eventos_corporativos:
+        return _inferir_eventos(argumentos, settings, logger)
 
     anos = argumentos.anos or settings.anos
     if not anos:
@@ -254,6 +265,19 @@ def _carregar_proventos(argumentos: argparse.Namespace, settings: Settings, logg
     logger.info(
         "Carga de proventos concluida | anos=%s | periodos=%d",
         resultado.anos_processados, resultado.periodos_gravados,
+    )
+    return 0
+
+
+def _inferir_eventos(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    try:
+        resultado = montar_eventos_corporativos(settings, logger).executar(argumentos.anos)
+    except Exception as erro:
+        logger.critical("Inferencia de eventos abortada: %s", erro, exc_info=True)
+        return 1
+    logger.info(
+        "Eventos corporativos concluida | candidatos=%d | gravados=%d | descartados=%s",
+        resultado.candidatos, resultado.gravados, dict(resultado.motivos()),
     )
     return 0
 
