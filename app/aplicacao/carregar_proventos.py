@@ -21,6 +21,7 @@ from app.dominio.modelo import (
 )
 from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
 from app.dominio.provento import RegistroProvento, acumulado_do_documento, isolar_periodos
+from app.excecoes.excecoes import FonteIndisponivel
 from app.portas.fonte_documentos import FonteDeDocumentos
 from app.portas.provento import RepositorioProvento
 from app.portas.repositorios import (
@@ -104,16 +105,20 @@ class CarregarProventosContabeis:
             return
 
         dfps = list(self._fonte.documentos(ano, cnpjs, todos_os_grupos=True))
-        itrs = list(self._fonte.documentos_itr(ano, cnpjs))
+        # ITR aberto comeca em 2011: em 2010 so ha a DFP, e o provento sai
+        # anual (um periodo), sem os trimestres.
+        try:
+            itrs = list(self._fonte.documentos_itr(ano, cnpjs))
+            entregas_itr = self._fonte.datas_de_entrega("ITR", ano, cnpjs)
+        except FonteIndisponivel as erro:
+            self._logger.warning("Proventos %s sem ITR (%s); so a DFP", ano, erro)
+            itrs, entregas_itr = [], {}
         # Acoes do DFP do ano (as mesmas do LPA); no ano corrente, sem DFP
         # ainda, as do ano anterior. Declarado em cobertura_json.
         capitais = self._fonte.composicoes_de_capital(ano, cnpjs)
         if not capitais:
             capitais = self._fonte.composicoes_de_capital(ano - 1, cnpjs)
-        entregas = {
-            **self._fonte.datas_de_entrega("DFP", ano, cnpjs),
-            **self._fonte.datas_de_entrega("ITR", ano, cnpjs),
-        }
+        entregas = {**self._fonte.datas_de_entrega("DFP", ano, cnpjs), **entregas_itr}
 
         registros: list[RegistroProvento] = []
         for cnpj in sorted(cnpjs):
