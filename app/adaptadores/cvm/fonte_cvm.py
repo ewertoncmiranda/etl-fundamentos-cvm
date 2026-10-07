@@ -409,7 +409,8 @@ class FonteCvm:
         for cnpj, bruto in dfp.items():
             total_dfp = bruto["total"]
             tesouraria = bruto["tesouraria"]
-            total_fre = fre.get(cnpj, 0)
+            capital_fre = fre.get(cnpj, {})
+            total_fre = capital_fre.get("total", 0)
 
             if total_fre and total_dfp:
                 divergencia = total_fre / total_dfp
@@ -422,8 +423,12 @@ class FonteCvm:
                     dt_refer=bruto["dt_refer"],
                     acoes_ex_tesouraria=total_fre - tesouraria * escala,
                     fonte="FRE",
-                    qt_acao_ordinaria=bruto["qt_acao_ordinaria"] * escala,
-                    qt_acao_preferencial=bruto["qt_acao_preferencial"] * escala,
+                    qt_acao_ordinaria=_classe_do_fre_ou_dfp(
+                        capital_fre, "qt_acao_ordinaria", bruto, escala
+                    ),
+                    qt_acao_preferencial=_classe_do_fre_ou_dfp(
+                        capital_fre, "qt_acao_preferencial", bruto, escala
+                    ),
                     escala_aplicada=escala,
                     divergencia_fre_dfp=round(divergencia, 3),
                 )
@@ -442,13 +447,16 @@ class FonteCvm:
         # backtest perde metade do periodo. O FRE do mesmo ano tem o total de
         # acoes; a tesouraria fica sem desconto (em geral < 5% do capital), o
         # que a `fonte` registra para quem ler a cobertura.
-        for cnpj, total_fre in fre.items():
+        for cnpj, capital_fre in fre.items():
+            total_fre = capital_fre.get("total", 0)
             if cnpj not in saida and total_fre:
                 saida[cnpj] = ComposicaoCapital(
                     cnpj=cnpj,
                     dt_refer=date(ano, 12, 31),
                     acoes_ex_tesouraria=total_fre,
                     fonte="FRE_SEM_TESOURARIA",
+                    qt_acao_ordinaria=capital_fre.get("qt_acao_ordinaria", 0),
+                    qt_acao_preferencial=capital_fre.get("qt_acao_preferencial", 0),
                 )
         return saida
 
@@ -471,14 +479,23 @@ class FonteCvm:
                     "dt_refer": _data_ou_hoje(linha.get("DT_REFER")),
                     "total": _inteiro(linha.get("QT_ACAO_TOTAL_CAP_INTEGR")),
                     "tesouraria": _inteiro(linha.get("QT_ACAO_TOTAL_TESOURO")),
-                    "qt_acao_ordinaria": _inteiro(linha.get("QT_ACAO_ORDINARIA")),
-                    "qt_acao_preferencial": _inteiro(linha.get("QT_ACAO_PREFERENCIAL")),
+                    "qt_acao_ordinaria": _primeiro_inteiro(
+                        linha, "QT_ACAO_ORDIN_CAP_INTEGR", "QT_ACAO_ORDINARIA"
+                    ),
+                    "qt_acao_preferencial": _primeiro_inteiro(
+                        linha, "QT_ACAO_PREF_CAP_INTEGR", "QT_ACAO_PREFERENCIAL"
+                    ),
                 }
         return saida
 
-    def _capital_do_fre(self, ano: int, cnpjs: set[str]) -> dict[str, int]:
+    def _capital_do_fre(self, ano: int, cnpjs: set[str]) -> dict[str, dict]:
         arquivo = f"fre_cia_aberta_capital_social_{ano}.csv"
         saida: dict[str, dict] = {}
+        campo_por_tipo = {
+            "capital integralizado": "total",
+            "acoes ordinarias": "qt_acao_ordinaria",
+            "acoes preferenciais": "qt_acao_preferencial",
+        }
         try:
             leitor = self._leitor(PACOTE_FRE, ano)
         except Exception as erro:  # FRE ausente nao impede a carga
@@ -489,7 +506,9 @@ class FonteCvm:
             if not leitor.tem(arquivo):
                 return {}
             for linha in leitor.linhas(arquivo):
-                if normalizar(linha.get("Tipo_Capital")) != "capital integralizado":
+                tipo_capital = normalizar(linha.get("Tipo_Capital"))
+                campo = campo_por_tipo.get(tipo_capital)
+                if not campo:
                     continue
                 cnpj = (linha.get("CNPJ_Companhia") or "").strip()
                 if cnpj not in cnpjs:
@@ -498,11 +517,49 @@ class FonteCvm:
                 anterior = saida.get(cnpj)
                 if anterior and anterior["versao"] > versao:
                     continue
-                saida[cnpj] = {
-                    "versao": versao,
-                    "total": _inteiro(linha.get("Quantidade_Total_Acoes")),
-                }
-        return {cnpj: dados["total"] for cnpj, dados in saida.items()}
+                if not anterior or anterior["versao"] < versao:
+                    anterior = {"versao": versao}
+                    saida[cnpj] = anterior
+                anterior[campo] = _inteiro(linha.get("Quantidade_Total_Acoes"))
+                if tipo_capital == "capital integralizado":
+                    _copiar_inteiro_se_presente(
+                        linha,
+                        "Quantidade_Acoes_Ordinarias",
+                        anterior,
+                        "qt_acao_ordinaria",
+                    )
+                    _copiar_inteiro_se_presente(
+                        linha,
+                        "Quantidade_Acoes_Preferenciais",
+                        anterior,
+                        "qt_acao_preferencial",
+                    )
+        return saida
+
+
+def _classe_do_fre_ou_dfp(
+    capital_fre: dict, campo: str, capital_dfp: dict, escala: int
+) -> int:
+    """FRE vence quando a classe foi declarada, inclusive se o valor e zero."""
+    if campo in capital_fre:
+        return capital_fre[campo]
+    return capital_dfp[campo] * escala
+
+
+def _copiar_inteiro_se_presente(
+    origem: dict[str, str], campo_origem: str, destino: dict, campo_destino: str
+) -> None:
+    valor = origem.get(campo_origem)
+    if valor is not None and valor.strip():
+        destino[campo_destino] = _inteiro(valor)
+
+
+def _primeiro_inteiro(linha: dict[str, str], *campos: str) -> int:
+    for campo in campos:
+        valor = linha.get(campo)
+        if valor is not None and valor.strip():
+            return _inteiro(valor)
+    return 0
 
 
 def _so_acumulado(linhas: list[LinhaContabil]) -> list[LinhaContabil]:
