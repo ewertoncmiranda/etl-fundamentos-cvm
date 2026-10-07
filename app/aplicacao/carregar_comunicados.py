@@ -226,7 +226,7 @@ def montar_eventos(
             continue
         eventos.append(
             {
-                "schemaVersion": 1,
+                "schemaVersion": "1.0",
                 "evento": EVENTO_COMUNICADOS,
                 "simbolo": simbolo,
                 "cnpj": cnpj,

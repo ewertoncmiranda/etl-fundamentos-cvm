@@ -42,7 +42,13 @@ class PublicadorSqs:
         if not url:
             return
 
-        corpo = json.dumps({"schemaVersion": "1.0", "evento": "FUNDAMENTOS_ATUALIZADOS", "simbolos": sorted(set(simbolos))})
+        corpo = json.dumps(
+            {
+                "schemaVersion": "1.0",
+                "evento": "FUNDAMENTOS_ATUALIZADOS",
+                "simbolos": sorted(set(simbolos)),
+            }
+        )
         try:
             self._cliente.send_message(QueueUrl=url, MessageBody=corpo)
             self._logger.info("Publicado evento de fundamentos para %d simbolos", len(simbolos))
@@ -62,7 +68,8 @@ class PublicadorSqs:
         for evento in eventos:
             try:
                 self._cliente.send_message(
-                    QueueUrl=url, MessageBody=json.dumps({**evento, "schemaVersion": "1.0"}, default=str)
+                    QueueUrl=url,
+                    MessageBody=json.dumps(evento, default=str),
                 )
                 publicados += 1
             except Exception as erro:

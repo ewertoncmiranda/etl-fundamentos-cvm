@@ -49,6 +49,9 @@ class EmpresaEntity(MixinCarimbo, Base):
     denominacao: Mapped[str] = mapped_column(String(200), nullable=False)
     setor: Mapped[str | None] = mapped_column(String(60))
     plano_contas: Mapped[str] = mapped_column(String(20), nullable=False, default="GERAL")
+    situacao_registro: Mapped[str | None] = mapped_column(String(30))
+    data_constituicao: Mapped[Date | None] = mapped_column(Date)
+    uf_municipio: Mapped[str | None] = mapped_column(String(2))
 
 
 class TickerEntity(MixinCarimbo, Base):
@@ -57,6 +60,7 @@ class TickerEntity(MixinCarimbo, Base):
     simbolo: Mapped[str] = mapped_column(String(10), primary_key=True)
     cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
     tipo_valor_mobiliario: Mapped[str | None] = mapped_column(String(60))
+    isin: Mapped[str | None] = mapped_column(String(12))
     mercado: Mapped[str | None] = mapped_column(String(40))
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
@@ -142,6 +146,7 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     divida_bruta: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     caixa_equivalentes: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     fluxo_caixa_operacional: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    fco_bruto: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     capex: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     acoes_ex_tesouraria: Mapped[int | None] = mapped_column(BigInteger)
 
@@ -250,6 +255,33 @@ class CotacaoB3DiariaEntity(MixinCarimbo, Base):
     volume: Mapped[int | None] = mapped_column(BigInteger)
     numero_negocios: Mapped[int | None] = mapped_column(Integer)
     volume_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(22, 2))
+    isin: Mapped[str | None] = mapped_column(String(12))
+
+
+class OpcaoB3DiariaEntity(MixinCarimbo, Base):
+    """Cotacoes diarias de opcoes da B3, do COTAHIST BDI 12/14 (infra V20)."""
+
+    __tablename__ = "opcao_b3_diaria"
+    __table_args__ = (
+        UniqueConstraint("simbolo", "data_pregao", name="uq_opcao_b3_diaria"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    simbolo: Mapped[str] = mapped_column(String(12), nullable=False)
+    bdi: Mapped[str] = mapped_column(String(2), nullable=False)
+    data_pregao: Mapped[Date] = mapped_column(Date, nullable=False)
+    data_vencimento: Mapped[Date] = mapped_column(Date, nullable=False)
+    preco_exercicio: Mapped[Numeric] = mapped_column(Numeric(14, 4), nullable=False)
+    abertura: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    maxima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    minima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    fechamento: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    preco_medio: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    numero_negocios: Mapped[int | None] = mapped_column(Integer)
+    volume_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(22, 2))
+    fator_cotacao: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    isin: Mapped[str | None] = mapped_column(String(12))
 
 
 class ProventoContabilEntity(MixinCarimbo, Base):

@@ -4,7 +4,7 @@ from app.adaptadores.b3.cliente_http_b3 import ClienteHttpB3
 from app.adaptadores.b3.leitor_cotahist import LeitorCotahist
 from app.adaptadores.cvm.cache_local import CacheDeArquivos
 from app.adaptadores.cvm.cliente_http import Assinatura
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 
 
 class FonteB3:
@@ -32,3 +32,13 @@ class FonteB3:
             conteudo = self._cliente.baixar(nome)
             self._cache.gravar(nome, conteudo)
         return self._leitor.ler_zip(conteudo, simbolos)
+
+    def opcoes(self, ano: int, usar_cache: bool = False) -> list[OpcaoB3]:
+        """BDI 12 (calls) e 14 (puts) do COTAHIST; reutiliza o cache do ano."""
+        nome = self.caminho(ano)
+        if usar_cache and self._cache.tem(nome):
+            conteudo = self._cache.ler(nome)
+        else:
+            conteudo = self._cliente.baixar(nome)
+            self._cache.gravar(nome, conteudo)
+        return self._leitor.ler_opcoes_zip(conteudo)

@@ -22,7 +22,7 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 
 
 class RepositorioUniverso(Protocol):
@@ -81,6 +81,11 @@ class RepositorioIndicador(Protocol):
 
 class RepositorioSeries(Protocol):
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
+        ...
+
+
+class RepositorioOpcao(Protocol):
+    def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
         ...
 
 

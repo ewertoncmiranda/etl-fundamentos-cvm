@@ -25,6 +25,7 @@ BPA = "BPA"
 BPP = "BPP"
 DRE = "DRE"
 DFC_MI = "DFC_MI"
+DFC_MD = "DFC_MD"
 # Plano LAC (infra V16): DVA traz JCP e dividendos por periodo (L1); a DMPL
 # entra so como dado bruto, com a coluna do patrimonio em coluna_df.
 DVA = "DVA"
@@ -81,6 +82,9 @@ class Empresa:
     cd_cvm: str | None = None
     setor: str | None = None
     plano_contas: str = PLANO_GERAL
+    situacao_registro: str | None = None
+    data_constituicao: date | None = None
+    uf_municipio: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +93,7 @@ class Ticker:
     cnpj: str
     tipo_valor_mobiliario: str | None = None
     mercado: str | None = None
+    isin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +109,8 @@ class ComposicaoCapital:
     dt_refer: date
     acoes_ex_tesouraria: int
     fonte: str
+    qt_acao_ordinaria: int = 0
+    qt_acao_preferencial: int = 0
     escala_aplicada: int = 1
     divergencia_fre_dfp: float | None = None
 
@@ -191,6 +198,7 @@ class Indicadores:
     divida_bruta: Decimal | None = None
     caixa_equivalentes: Decimal | None = None
     fluxo_caixa_operacional: Decimal | None = None
+    fco_bruto: Decimal | None = None
     capex: Decimal | None = None
     acoes_ex_tesouraria: int | None = None
 

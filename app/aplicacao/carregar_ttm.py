@@ -102,23 +102,32 @@ class CarregarTtm:
             self._logger.warning("TTM %s sem CNPJ para: %s", ano, ", ".join(ausentes))
         cnpjs = {ticker.cnpj for ticker in selecionados.values()}
         itrs_atuais = list(self._fonte.documentos_itr(ano, cnpjs))
-        trios = escolher_trios(
-            self._fonte.documentos(ano - 1, cnpjs, todos_os_grupos=True),
-            itrs_atuais,
-            self._fonte.documentos_itr(ano - 1, cnpjs),
+        # DFP dos dois anos: quem fecha o exercicio em marco (RAIZ4) usa a do
+        # proprio ano; o escolher_trios_por_corte casa pela data.
+        dfps = [
+            *self._fonte.documentos(ano - 1, cnpjs, todos_os_grupos=True),
+            *self._fonte.documentos(ano, cnpjs, todos_os_grupos=True),
+        ]
+        trios = escolher_trios_por_corte(
+            dfps, itrs_atuais, self._fonte.documentos_itr(ano - 1, cnpjs)
         )
         capitais = self._fonte.composicoes_de_capital(ano - 1, cnpjs)
         empresas = self._fonte.empresas(ano) or self._fonte.empresas(ano - 1)
         entregas = self._fonte.datas_de_entrega("ITR", ano, cnpjs)
 
-        documentos_ttm: dict[str, DocumentoContabil] = {}
-        entregas_ttm: dict = {}
-        for cnpj in sorted({itr.cnpj for itr in itrs_atuais} - set(trios)):
+        # Todos os trimestres do ano, nao so o mais recente: serie historica
+        # de TTM (plano LAC, L3). Cada um com a entrega do ITR que o fecha.
+        documentos_ttm: dict[str, list[DocumentoContabil]] = {}
+        entregas_ttm: dict[tuple[str, date], date | None] = {}
+        com_trio = {cnpj for cnpj, _ in trios}
+        for cnpj in sorted({itr.cnpj for itr in itrs_atuais} - com_trio):
             self._logger.warning("TTM %s sem trio completo para o CNPJ %s", ano, cnpj)
-        for cnpj, (anual, atual, anterior) in trios.items():
-            documentos_ttm[cnpj] = self._ttm.montar(anual, atual, anterior)
+        for (cnpj, corte), (anual, atual, anterior) in sorted(trios.items()):
+            documentos_ttm.setdefault(cnpj, []).append(self._ttm.montar(anual, atual, anterior))
             # O TTM fica publico junto com o ITR mais recente que o compoe.
-            entregas_ttm[cnpj] = data_de_entrega(entregas, cnpj, atual.dt_refer, atual.versao)
+            entregas_ttm[(cnpj, corte)] = data_de_entrega(
+                entregas, cnpj, atual.dt_refer, atual.versao
+            )
 
         indicadores = []
         with self._uow.transacao() as db:
@@ -126,21 +135,23 @@ class CarregarTtm:
                 db, [empresas.get(cnpj) or Empresa(cnpj=cnpj, denominacao=cnpj) for cnpj in cnpjs]
             )
             self._cadastro.salvar_tickers(db, list(selecionados.values()))
+            gravados: set[str] = set()
             for simbolo, ticker in selecionados.items():
-                documento = documentos_ttm.get(ticker.cnpj)
-                if documento is None:
-                    continue
-                for linhas in documento.linhas.values():
-                    self._fato.salvar_linhas(
-                        db, documento.cnpj, documento.tipo_doc, documento.grupo,
-                        documento.versao, documento.dt_refer, linhas,
+                for documento in documentos_ttm.get(ticker.cnpj, []):
+                    # ON e PN da mesma companhia: os fatos sao os mesmos.
+                    if ticker.cnpj not in gravados:
+                        for linhas in documento.linhas.values():
+                            self._fato.salvar_linhas(
+                                db, documento.cnpj, documento.tipo_doc, documento.grupo,
+                                documento.versao, documento.dt_refer, linhas,
+                            )
+                    indicadores.append(
+                        replace(
+                            self._montador.montar(simbolo, documento, capitais.get(ticker.cnpj)),
+                            data_entrega=entregas_ttm.get((ticker.cnpj, documento.dt_fim_exerc)),
+                        )
                     )
-                indicadores.append(
-                    replace(
-                        self._montador.montar(simbolo, documento, capitais.get(ticker.cnpj)),
-                        data_entrega=entregas_ttm.get(ticker.cnpj),
-                    )
-                )
+                gravados.add(ticker.cnpj)
             if indicadores:
                 self._indicador.salvar(db, indicadores)
             self._execucao.registrar(
@@ -164,34 +175,64 @@ class CarregarTtm:
 Trio = tuple[DocumentoContabil, DocumentoContabil, DocumentoContabil]
 
 
-def escolher_trios(
-    dfps_anteriores: Iterable[DocumentoContabil],
+def escolher_trios_por_corte(
+    dfps: Iterable[DocumentoContabil],
     itrs_atuais: Iterable[DocumentoContabil],
     itrs_anteriores: Iterable[DocumentoContabil],
-) -> dict[str, Trio]:
-    """cnpj -> (DFP anterior, ITR atual, ITR anterior), todos do mesmo grupo.
+) -> dict[tuple[str, date], Trio]:
+    """(cnpj, corte) -> (DFP, ITR atual, ITR anterior), todos do mesmo grupo.
+
+    Um trio por trimestre (marco, junho e setembro de cada ano), para a serie
+    historica de TTM. A DFP do trio e o exercicio encerrado entre os dois
+    ITRs: dezembro do ano anterior no ano civil, marco do proprio ano para
+    quem fecha em marco (RAIZ4) - por isso `dfps` traz os dois anos.
 
     Misturar grupos soma perimetros diferentes e, pior, descarta em silencio
     as contas cujo rotulo muda ("Lucro/Prejuizo Consolidado do Periodo" x
-    "Lucro/Prejuizo do Periodo"). Entre os trios completos vale o corte mais
-    recente; no empate, o consolidado.
+    "Lucro/Prejuizo do Periodo"). No mesmo corte, vale o consolidado.
     """
-    dfps = {(d.cnpj, d.grupo): d for d in dfps_anteriores}
+    dfps_por_grupo: dict[tuple[str, str], list[DocumentoContabil]] = {}
+    for d in dfps:
+        dfps_por_grupo.setdefault((d.cnpj, d.grupo), []).append(d)
     anteriores = {
         (d.cnpj, d.grupo, d.dt_fim_exerc.month, d.dt_fim_exerc.day): d
         for d in itrs_anteriores
     }
-    saida: dict[str, Trio] = {}
+    saida: dict[tuple[str, date], Trio] = {}
     for atual in itrs_atuais:
-        anual = dfps.get((atual.cnpj, atual.grupo))
         anterior = anteriores.get(
             (atual.cnpj, atual.grupo, atual.dt_fim_exerc.month, atual.dt_fim_exerc.day)
         )
-        if anual is None or anterior is None:
+        if anterior is None:
             continue
-        escolhido = saida.get(atual.cnpj)
+        anual = max(
+            (
+                d for d in dfps_por_grupo.get((atual.cnpj, atual.grupo), [])
+                if anterior.dt_fim_exerc < d.dt_fim_exerc < atual.dt_fim_exerc
+            ),
+            key=lambda d: d.dt_fim_exerc,
+            default=None,
+        )
+        if anual is None:
+            continue
+        chave = (atual.cnpj, atual.dt_fim_exerc)
+        escolhido = saida.get(chave)
         if escolhido is None or _preferencia(atual) > _preferencia(escolhido[1]):
-            saida[atual.cnpj] = (anual, atual, anterior)
+            saida[chave] = (anual, atual, anterior)
+    return saida
+
+
+def escolher_trios(
+    dfps: Iterable[DocumentoContabil],
+    itrs_atuais: Iterable[DocumentoContabil],
+    itrs_anteriores: Iterable[DocumentoContabil],
+) -> dict[str, Trio]:
+    """cnpj -> o trio do corte mais recente (no empate, o consolidado)."""
+    saida: dict[str, Trio] = {}
+    for (cnpj, _), trio in escolher_trios_por_corte(dfps, itrs_atuais, itrs_anteriores).items():
+        escolhido = saida.get(cnpj)
+        if escolhido is None or _preferencia(trio[1]) > _preferencia(escolhido[1]):
+            saida[cnpj] = trio
     return saida
 
 

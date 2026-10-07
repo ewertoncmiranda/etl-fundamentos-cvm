@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from app.dominio.modelo import (
     BPA,
     BPP,
+    DFC_MD,
     DFC_MI,
     DRE,
     DVA,
@@ -18,7 +19,7 @@ from app.dominio.texto import normalizar
 
 # DVA e fluxo: proventos dos ultimos 12 meses (plano LAC, L1). A DMPL fica
 # fora do TTM: a mesma conta aparece em varias colunas e a chave colidiria.
-DEMONSTRACOES_DE_FLUXO = (DRE, DFC_MI, DVA)
+DEMONSTRACOES_DE_FLUXO = (DRE, DFC_MI, DFC_MD, DVA)
 DEMONSTRACOES_DE_ESTOQUE = (BPA, BPP)
 
 

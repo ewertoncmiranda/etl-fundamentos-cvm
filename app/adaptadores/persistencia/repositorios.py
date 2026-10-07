@@ -30,6 +30,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
+    OpcaoB3DiariaEntity,
     ProventoContabilEntity,
     TickerEntity,
 )
@@ -44,7 +45,7 @@ from app.dominio.modelo import (
     Ticker,
 )
 from app.dominio.provento import RegistroProvento
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 from app.dominio.texto import normalizar
 from app.dominio.validacao_acoes import conferir_acoes
 
@@ -143,6 +144,9 @@ class RepositorioCadastroSql:
                 "denominacao": e.denominacao or e.cnpj,
                 "setor": e.setor,
                 "plano_contas": e.plano_contas,
+                "situacao_registro": e.situacao_registro,
+                "data_constituicao": e.data_constituicao,
+                "uf_municipio": e.uf_municipio,
             }
             for e in empresas
         ]
@@ -150,7 +154,10 @@ class RepositorioCadastroSql:
             db,
             EmpresaEntity,
             registros,
-            ("cd_cvm", "denominacao", "setor", "plano_contas"),
+            (
+                "cd_cvm", "denominacao", "setor", "plano_contas",
+                "situacao_registro", "data_constituicao", "uf_municipio",
+            ),
         )
 
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
@@ -159,6 +166,7 @@ class RepositorioCadastroSql:
                 "simbolo": t.simbolo,
                 "cnpj": t.cnpj,
                 "tipo_valor_mobiliario": t.tipo_valor_mobiliario,
+                "isin": t.isin,
                 "mercado": t.mercado,
                 "ativo": True,
             }
@@ -168,7 +176,7 @@ class RepositorioCadastroSql:
             db,
             TickerEntity,
             registros,
-            ("cnpj", "tipo_valor_mobiliario", "mercado", "ativo"),
+            ("cnpj", "tipo_valor_mobiliario", "isin", "mercado", "ativo"),
         )
 
     def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
@@ -297,6 +305,8 @@ class RepositorioFatoContabilSql:
             "dt_refer": capital.dt_refer,
             "tipo_doc": tipo_doc,
             "versao": 1,
+            "qt_acao_ordinaria": capital.qt_acao_ordinaria,
+            "qt_acao_preferencial": capital.qt_acao_preferencial,
             "qt_acao_ex_tesouraria": capital.acoes_ex_tesouraria,
             "qt_acao_total": capital.acoes_ex_tesouraria,
         }
@@ -304,7 +314,10 @@ class RepositorioFatoContabilSql:
             db,
             ComposicaoCapitalEntity,
             [registro],
-            ("qt_acao_ex_tesouraria", "qt_acao_total", "versao"),
+            (
+                "qt_acao_ordinaria", "qt_acao_preferencial",
+                "qt_acao_ex_tesouraria", "qt_acao_total", "versao",
+            ),
         )
 
 
@@ -324,6 +337,7 @@ class RepositorioIndicadorSql:
         "divida_bruta",
         "caixa_equivalentes",
         "fluxo_caixa_operacional",
+        "fco_bruto",
         "capex",
         "acoes_ex_tesouraria",
         "lpa",
@@ -362,6 +376,7 @@ class RepositorioIndicadorSql:
                 "divida_bruta": i.divida_bruta,
                 "caixa_equivalentes": i.caixa_equivalentes,
                 "fluxo_caixa_operacional": i.fluxo_caixa_operacional,
+                "fco_bruto": i.fco_bruto,
                 "capex": i.capex,
                 "acoes_ex_tesouraria": i.acoes_ex_tesouraria,
                 "lpa": i.lpa,
@@ -453,6 +468,7 @@ class RepositorioSeriesSql:
                 "volume": candle.volume,
                 "numero_negocios": candle.numero_negocios,
                 "volume_financeiro": candle.volume_financeiro,
+                "isin": candle.isin,
                 "especificacao": candle.especificacao,
                 "marca_ex": candle.marca_ex,
                 "fator_cotacao": candle.fator_cotacao,
@@ -468,8 +484,43 @@ class RepositorioSeriesSql:
             registros,
             (
                 "abertura", "maxima", "minima", "fechamento", "volume",
-                "numero_negocios", "volume_financeiro", "especificacao", "marca_ex",
+                "numero_negocios", "volume_financeiro", "isin", "especificacao", "marca_ex",
                 "fator_cotacao", "preco_medio", "melhor_oferta_compra", "melhor_oferta_venda",
+            ),
+        )
+
+
+class RepositorioOpcaoSql:
+    def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        registros = [
+            {
+                "simbolo": o.simbolo,
+                "bdi": o.bdi,
+                "data_pregao": o.data_pregao,
+                "data_vencimento": o.data_vencimento,
+                "preco_exercicio": o.preco_exercicio,
+                "abertura": o.abertura,
+                "maxima": o.maxima,
+                "minima": o.minima,
+                "fechamento": o.fechamento,
+                "preco_medio": o.preco_medio,
+                "volume": o.volume,
+                "numero_negocios": o.numero_negocios,
+                "volume_financeiro": o.volume_financeiro,
+                "fator_cotacao": o.fator_cotacao,
+                "isin": o.isin,
+            }
+            for o in opcoes
+        ]
+        return _upsert(
+            db,
+            OpcaoB3DiariaEntity,
+            registros,
+            (
+                "bdi", "data_vencimento", "preco_exercicio",
+                "abertura", "maxima", "minima", "fechamento", "preco_medio",
+                "volume", "numero_negocios", "volume_financeiro",
+                "fator_cotacao", "isin",
             ),
         )
 
