@@ -30,6 +30,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
+    OpcaoB3DiariaEntity,
     ProventoContabilEntity,
     TickerEntity,
 )
@@ -44,7 +45,7 @@ from app.dominio.modelo import (
     Ticker,
 )
 from app.dominio.provento import RegistroProvento
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 from app.dominio.texto import normalizar
 from app.dominio.validacao_acoes import conferir_acoes
 
@@ -153,7 +154,10 @@ class RepositorioCadastroSql:
             db,
             EmpresaEntity,
             registros,
-            ("cd_cvm", "denominacao", "setor", "plano_contas", "situacao_registro", "data_constituicao", "uf_municipio"),
+            (
+                "cd_cvm", "denominacao", "setor", "plano_contas",
+                "situacao_registro", "data_constituicao", "uf_municipio",
+            ),
         )
 
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
@@ -482,6 +486,41 @@ class RepositorioSeriesSql:
                 "abertura", "maxima", "minima", "fechamento", "volume",
                 "numero_negocios", "volume_financeiro", "isin", "especificacao", "marca_ex",
                 "fator_cotacao", "preco_medio", "melhor_oferta_compra", "melhor_oferta_venda",
+            ),
+        )
+
+
+class RepositorioOpcaoSql:
+    def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        registros = [
+            {
+                "simbolo": o.simbolo,
+                "bdi": o.bdi,
+                "data_pregao": o.data_pregao,
+                "data_vencimento": o.data_vencimento,
+                "preco_exercicio": o.preco_exercicio,
+                "abertura": o.abertura,
+                "maxima": o.maxima,
+                "minima": o.minima,
+                "fechamento": o.fechamento,
+                "preco_medio": o.preco_medio,
+                "volume": o.volume,
+                "numero_negocios": o.numero_negocios,
+                "volume_financeiro": o.volume_financeiro,
+                "fator_cotacao": o.fator_cotacao,
+                "isin": o.isin,
+            }
+            for o in opcoes
+        ]
+        return _upsert(
+            db,
+            OpcaoB3DiariaEntity,
+            registros,
+            (
+                "bdi", "data_vencimento", "preco_exercicio",
+                "abertura", "maxima", "minima", "fechamento", "preco_medio",
+                "volume", "numero_negocios", "volume_financeiro",
+                "fator_cotacao", "isin",
             ),
         )
 

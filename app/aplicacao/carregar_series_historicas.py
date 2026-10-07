@@ -5,8 +5,8 @@ from logging import Logger
 
 from app.dominio.identidade import codigos_negociados
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO
-from app.portas.fonte_series import FonteDeSeries
-from app.portas.repositorios import RepositorioExecucao, RepositorioSeries
+from app.portas.fonte_series import FonteDeOpcoes, FonteDeSeries
+from app.portas.repositorios import RepositorioExecucao, RepositorioOpcao, RepositorioSeries
 
 FONTE_COTAHIST = "B3_COTAHIST"
 
@@ -16,6 +16,7 @@ class ResultadoSeries:
     anos_processados: list[int] = field(default_factory=list)
     anos_pulados: list[int] = field(default_factory=list)
     candles_gravados: int = 0
+    opcoes_gravadas: int = 0
 
 
 class CarregarSeriesHistoricas:
@@ -29,6 +30,8 @@ class CarregarSeriesHistoricas:
         repositorio_identidade=None,
         verificador_de_schema=None,
         nome_do_banco: str | None = None,
+        fonte_opcoes: FonteDeOpcoes | None = None,
+        repositorio_opcao: RepositorioOpcao | None = None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -38,6 +41,8 @@ class CarregarSeriesHistoricas:
         self._identidade = repositorio_identidade
         self._verificador = verificador_de_schema
         self._nome_do_banco = nome_do_banco
+        self._fonte_opcoes = fonte_opcoes
+        self._opcao = repositorio_opcao
 
     def executar(
         self,
@@ -92,6 +97,15 @@ class CarregarSeriesHistoricas:
             resultado.anos_processados.append(ano)
             resultado.candles_gravados += gravados
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
+
+            if self._fonte_opcoes is not None and self._opcao is not None:
+                from datetime import date as _date
+                usar_cache_opcoes = ano < _date.today().year
+                opcoes = self._fonte_opcoes.opcoes(ano, usar_cache=usar_cache_opcoes)
+                with self._uow.transacao() as db:
+                    opcoes_gravadas = self._opcao.salvar_opcoes_b3(db, opcoes)
+                resultado.opcoes_gravadas += opcoes_gravadas
+                self._logger.info("COTAHIST %s: %d opcoes B3 gravadas", ano, opcoes_gravadas)
         return resultado
 
     def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str] | None:

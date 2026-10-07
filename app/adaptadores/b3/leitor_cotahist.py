@@ -14,7 +14,7 @@ import zipfile
 from datetime import datetime
 from decimal import Decimal
 
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 
 TAMANHO_REGISTRO = 245
 TIPO_COTACAO = "01"
@@ -24,6 +24,9 @@ BDI_LOTE_PADRAO = "02"
 # 35 no mercado a vista de lote padrao - visto no COTAHIST_A2026.
 BDI_BDR = "35"
 BDIS_ACEITOS = {BDI_LOTE_PADRAO, BDI_BDR}
+BDI_OPCAO_COMPRA = "12"
+BDI_OPCAO_VENDA = "14"
+BDIS_OPCAO = {BDI_OPCAO_COMPRA, BDI_OPCAO_VENDA}
 
 
 def _inteiro(texto: str) -> int:
@@ -111,6 +114,60 @@ class LeitorCotahist:
                     melhor_oferta_compra=_preco_ou_nulo(linha[121:134], fator),
                     melhor_oferta_venda=_preco_ou_nulo(linha[134:147], fator),
                     isin=isin,
+                )
+            )
+        return resultado
+
+    def ler_opcoes_zip(self, conteudo: bytes) -> list[OpcaoB3]:
+        with zipfile.ZipFile(io.BytesIO(conteudo)) as pacote:
+            nomes = [nome for nome in pacote.namelist() if nome.upper().endswith(".TXT")]
+            if len(nomes) != 1:
+                raise ValueError(f"COTAHIST deve conter um TXT; encontrados: {len(nomes)}")
+            texto = pacote.read(nomes[0]).decode("latin-1")
+        return self.ler_opcoes_linhas(texto.splitlines())
+
+    def ler_opcoes_linhas(self, linhas: list[str]) -> list[OpcaoB3]:
+        """Registros BDI 12 (calls) e 14 (puts) do COTAHIST.
+
+        PTOEXE (posicoes 189-201, 1-based): preco de exercicio em centavos,
+        mesmo formato dos demais precos. Nao divide por FATCOT — o exercicio
+        e por acao, nao por lote.
+        DATVEN (posicoes 203-210, 1-based): data de vencimento YYYYMMDD.
+        Registros com DATVEN invalida sao descartados silenciosamente.
+        """
+        resultado: list[OpcaoB3] = []
+        for numero, linha in enumerate(linhas, start=1):
+            if linha[:2] != TIPO_COTACAO:
+                continue
+            if len(linha) != TAMANHO_REGISTRO:
+                raise ValueError(
+                    f"Registro COTAHIST {numero} tem {len(linha)} caracteres; esperado 245"
+                )
+            if linha[10:12] not in BDIS_OPCAO:
+                continue
+            data_vencimento_str = linha[202:210].strip()
+            try:
+                data_vencimento = datetime.strptime(data_vencimento_str, "%Y%m%d").date()
+            except ValueError:
+                continue
+            fator = max(_inteiro(linha[210:217]), 1)
+            resultado.append(
+                OpcaoB3(
+                    simbolo=linha[12:24].strip().upper(),
+                    bdi=linha[10:12],
+                    data_pregao=datetime.strptime(linha[2:10], "%Y%m%d").date(),
+                    data_vencimento=data_vencimento,
+                    preco_exercicio=_decimal_centavos(linha[188:201]),
+                    abertura=_preco(linha[56:69], fator),
+                    maxima=_preco(linha[69:82], fator),
+                    minima=_preco(linha[82:95], fator),
+                    fechamento=_preco(linha[108:121], fator),
+                    numero_negocios=_inteiro(linha[147:152]),
+                    volume=_inteiro(linha[152:170]),
+                    volume_financeiro=_decimal_centavos(linha[170:188]),
+                    isin=linha[230:242].strip() or None,
+                    fator_cotacao=fator,
+                    preco_medio=_preco_ou_nulo(linha[95:108], fator),
                 )
             )
         return resultado

@@ -28,3 +28,24 @@ class CandleB3:
     melhor_oferta_compra: Decimal | None = None
     melhor_oferta_venda: Decimal | None = None
     isin: str | None = None
+
+
+@dataclass(frozen=True)
+class OpcaoB3:
+    """Cotacao diaria de opcao da B3 (BDI 12=call, 14=put) do COTAHIST."""
+
+    simbolo: str
+    bdi: str
+    data_pregao: date
+    data_vencimento: date
+    preco_exercicio: Decimal
+    abertura: Decimal
+    maxima: Decimal
+    minima: Decimal
+    fechamento: Decimal
+    volume: int
+    numero_negocios: int
+    volume_financeiro: Decimal
+    isin: str | None = None
+    fator_cotacao: int = 1
+    preco_medio: Decimal | None = None

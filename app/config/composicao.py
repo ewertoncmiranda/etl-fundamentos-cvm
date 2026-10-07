@@ -23,6 +23,7 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioFatoContabilSql,
     RepositorioIdentidadeSql,
     RepositorioIndicadorSql,
+    RepositorioOpcaoSql,
     RepositorioProventoSql,
     RepositorioSeriesSql,
     RepositorioUniversoSql,
@@ -69,21 +70,25 @@ def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamento
 
 def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeriesHistoricas:
     banco = _montar_banco(settings, logger)
+    fonte_b3 = FonteB3(
+        cliente=ClienteHttpB3(settings.b3_base_url, logger, settings.http_timeout),
+        cache=CacheDeArquivos(settings.b3_cache_dir),
+        leitor=LeitorCotahist(),
+    )
     return CarregarSeriesHistoricas(
-        fonte=FonteB3(
-            cliente=ClienteHttpB3(settings.b3_base_url, logger, settings.http_timeout),
-            cache=CacheDeArquivos(settings.b3_cache_dir),
-            leitor=LeitorCotahist(),
-        ),
+        fonte=fonte_b3,
         unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
         repositorio_series=RepositorioSeriesSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
         repositorio_identidade=RepositorioIdentidadeSql(),
         verificador_de_schema=VerificadorDeSchema(
-            ("cotacao_b3_diaria", "etl_execucao"), colunas=COLUNAS_V16_COTAHIST
+            ("cotacao_b3_diaria", "opcao_b3_diaria", "etl_execucao"),
+            colunas=COLUNAS_V16_COTAHIST,
         ),
         nome_do_banco=settings.db_name,
+        fonte_opcoes=fonte_b3,
+        repositorio_opcao=RepositorioOpcaoSql(),
     )
 
 
