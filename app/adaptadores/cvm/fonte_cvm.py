@@ -66,6 +66,28 @@ def caminho_do_pacote(tipo: str, ano: int) -> str:
     return f"{tipo}/DADOS/{nome}"
 
 
+def _ufs_da_sede(leitor: LeitorDePacoteCvm, ano: int) -> dict[str, str]:
+    """CNPJ -> sigla da UF do endereco da sede (FCA endereco). A UF nao vem no arquivo geral."""
+    arquivo = f"fca_cia_aberta_endereco_{ano}.csv"
+    if not leitor.tem(arquivo):
+        return {}
+    por_cnpj: dict[str, tuple[int, str]] = {}
+    for linha in leitor.linhas(arquivo):
+        if "sede" not in normalizar(linha.get("Tipo_Endereco") or ""):
+            continue
+        cnpj = (linha.get("CNPJ_Companhia") or "").strip()
+        uf = (linha.get("Sigla_UF") or "").strip().upper()
+        if not cnpj or len(uf) != 2:
+            continue
+        try:
+            versao = int(linha.get("Versao") or 0)
+        except ValueError:
+            versao = 0
+        if cnpj not in por_cnpj or versao >= por_cnpj[cnpj][0]:
+            por_cnpj[cnpj] = (versao, uf)
+    return {cnpj: uf for cnpj, (_, uf) in por_cnpj.items()}
+
+
 class FonteCvm:
     def __init__(
         self,
@@ -165,6 +187,7 @@ class FonteCvm:
         with self._leitor(PACOTE_FCA, ano) as leitor:
             if not leitor.tem(arquivo):
                 return saida
+            ufs = _ufs_da_sede(leitor, ano)
             for linha in leitor.linhas(arquivo):
                 cnpj = (linha.get("CNPJ_Companhia") or "").strip()
                 if not cnpj:
@@ -179,9 +202,9 @@ class FonteCvm:
                     denominacao=(linha.get("Nome_Empresarial") or "").strip(),
                     cd_cvm=(linha.get("Codigo_CVM") or "").strip() or None,
                     setor=(linha.get("Setor_Atividade") or "").strip() or None,
-                    situacao_registro=(linha.get("Situacao_Registro") or "").strip() or None,
+                    situacao_registro=(linha.get("Situacao_Registro_CVM") or "").strip() or None,
                     data_constituicao=data_constituicao,
-                    uf_municipio=(linha.get("UF_Municipio") or "").strip() or None,
+                    uf_municipio=ufs.get(cnpj),
                 )
         return saida
 

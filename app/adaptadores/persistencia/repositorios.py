@@ -19,7 +19,7 @@ from datetime import date, datetime
 from logging import Logger
 from typing import Any
 
-from sqlalchemy import bindparam, select
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.adaptadores.persistencia.entidade.entidades import (
@@ -488,6 +488,24 @@ class RepositorioSeriesSql:
                 "fator_cotacao", "preco_medio", "melhor_oferta_compra", "melhor_oferta_venda",
             ),
         )
+
+
+    def atualizar_isin_dos_tickers(self, db: Any) -> int:
+        """O FCA (valor_mobiliario) nao traz ISIN: o do cvm_ticker vem do pregao mais recente
+        do mesmo codigo de negociacao no COTAHIST. So muda quem esta nulo ou diferente."""
+        resultado = db.execute(
+            text(
+                "UPDATE cvm_ticker t "
+                "JOIN (SELECT c.simbolo, c.isin FROM cotacao_b3_diaria c "
+                "      JOIN (SELECT simbolo, MAX(data_pregao) AS ultimo FROM cotacao_b3_diaria "
+                "            WHERE isin IS NOT NULL AND isin <> '' GROUP BY simbolo) u "
+                "        ON u.simbolo = c.simbolo AND u.ultimo = c.data_pregao "
+                "      WHERE c.isin IS NOT NULL AND c.isin <> '') x ON x.simbolo = t.simbolo "
+                "SET t.isin = x.isin "
+                "WHERE t.isin IS NULL OR t.isin <> x.isin"
+            )
+        )
+        return int(resultado.rowcount or 0)
 
 
 class RepositorioOpcaoSql:
