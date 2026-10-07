@@ -101,10 +101,14 @@ class CarregarTtm:
         if not tickers:
             tickers = self._fonte.tickers(ano - 1)
         identidades = {}
-        if self._identidade is not None:
-            with self._uow.transacao() as db:
+        with self._uow.transacao() as db:
+            if self._identidade is not None:
                 identidades = self._identidade.identidades(db)
-        selecionados, ausentes = resolver_tickers(simbolos, tickers, identidades)
+            # O FCA de 2015-2017 nao traz o codigo de negociacao: sem os CNPJs
+            # ja cadastrados (pela carga da DFP) nenhum ticker resolve - a
+            # mesma rede de seguranca do CarregarFundamentos.
+            conhecidos = self._cadastro.cnpjs_por_simbolo(db, simbolos)
+        selecionados, ausentes = resolver_tickers(simbolos, tickers, identidades, conhecidos)
         if ausentes:
             self._logger.warning("TTM %s sem CNPJ para: %s", ano, ", ".join(ausentes))
         cnpjs = {ticker.cnpj for ticker in selecionados.values()}
