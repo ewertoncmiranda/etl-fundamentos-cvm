@@ -7,8 +7,8 @@ on:
       - develop
 
 jobs:
-  # O build so acontece depois que lint, mypy e testes passam. O repo irmao
-  # publica 'latest' sem rodar teste nenhum (gerar-insights#ISS-05); aqui nao.
+  # A esteira valida so os testes unitarios (decisao do dono, 2026-10-07):
+  # lint e tipagem nao bloqueiam build nem PR - rodam local, se quiser.
   qualidade:
     runs-on: ubuntu-latest
     steps:
@@ -21,12 +21,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
-
-      - name: Lint (ruff)
-        run: ruff check app tests main.py
-
-      - name: Type check (mypy)
-        run: mypy app
 
       - name: Tests
         env:

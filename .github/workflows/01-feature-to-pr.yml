@@ -21,12 +21,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Lint (ruff)
-        run: ruff check app tests main.py
-
-      - name: Type check (mypy)
-        run: mypy app
-
+      # So testes unitarios na esteira (sem lint/mypy: decisao de 2026-10-07).
       # -m "not externo" mantem fora o teste que bate no Fundamentus: site de
       # terceiro fora do ar nao pode quebrar o build.
       - name: Tests
@@ -71,6 +66,6 @@ jobs:
               head: branch,
               base: 'develop',
               title: `${branch}`,
-              body: 'PR aberto automaticamente pelo workflow apos lint, mypy e testes passarem.',
+              body: 'PR aberto automaticamente pelo workflow apos os testes unitarios passarem.',
             });
             core.info(`PR criado: ${pr.html_url}`);
