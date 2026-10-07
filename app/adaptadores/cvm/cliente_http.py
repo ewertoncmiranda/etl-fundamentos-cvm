@@ -102,4 +102,4 @@ class ClienteHttpCvm:
 def _erro_transitorio(erro: BaseException) -> bool:
     if isinstance(erro, urllib.error.HTTPError):
         return erro.code in CODIGOS_HTTP_TRANSITORIOS or 500 <= erro.code <= 599
-    return isinstance(erro, (urllib.error.URLError, TimeoutError, OSError))
+    return isinstance(erro, urllib.error.URLError | TimeoutError | OSError)
