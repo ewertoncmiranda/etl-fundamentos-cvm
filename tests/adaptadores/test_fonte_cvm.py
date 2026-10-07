@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from app.adaptadores.cvm.fonte_cvm import FonteCvm
+from app.adaptadores.cvm.normalizador import NormalizadorDeLinhas
 from app.dominio.modelo import DRE, GRUPO_CONSOLIDADO, GRUPO_INDIVIDUAL
 from tests.conftest import PERIODO, linha
 
 TIM = "02.421.421/0001-11"
 WEG = "84.429.695/0001-11"
+ITUB = "60.872.504/0001-23"
 
 
 def _dados(*linhas):
@@ -200,3 +203,196 @@ class TestSoAcumulado:
         linhas = [self._linha(date(2025, 10, 1), "3"), self._linha(date(2025, 4, 1), "7")]
 
         assert [linha.vl_conta for linha in _so_acumulado(linhas)] == [7]
+
+
+class _LeitorFalso:
+    def __init__(self, arquivo, linhas):
+        self._arquivo = arquivo
+        self._linhas = linhas
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return None
+
+    def tem(self, arquivo):
+        return arquivo == self._arquivo
+
+    def linhas(self, arquivo):
+        assert arquivo == self._arquivo
+        yield from self._linhas
+
+
+class TestComposicaoCapitalFre:
+
+    def test_le_breakdown_do_dfp_pelos_nomes_reais_das_colunas(self):
+        arquivo = "dfp_cia_aberta_composicao_capital_2025.csv"
+        linhas = [
+            {
+                "CNPJ_CIA": ITUB,
+                "DT_REFER": "2025-12-31",
+                "VERSAO": "2",
+                "QT_ACAO_ORDIN_CAP_INTEGR": "5617743",
+                "QT_ACAO_PREF_CAP_INTEGR": "5409126",
+                "QT_ACAO_TOTAL_CAP_INTEGR": "11026869",
+                "QT_ACAO_TOTAL_TESOURO": "345",
+            }
+        ]
+        fonte = FonteCvm(
+            None, None, NormalizadorDeLinhas(), logging.getLogger("teste")  # type: ignore[arg-type]
+        )
+        fonte._leitor = lambda *_: _LeitorFalso(arquivo, linhas)  # type: ignore[method-assign]
+
+        capital = fonte._composicao_do_dfp(2025, {ITUB})[ITUB]
+
+        assert capital["qt_acao_ordinaria"] == 5_617_743
+        assert capital["qt_acao_preferencial"] == 5_409_126
+
+    def test_le_fre_por_classe_e_mantem_apenas_a_maior_versao(self):
+        arquivo = "fre_cia_aberta_capital_social_2025.csv"
+        linhas = [
+            {
+                "CNPJ_Companhia": WEG,
+                "Tipo_Capital": "Capital Integralizado",
+                "Quantidade_Total_Acoes": "100",
+                "Quantidade_Acoes_Ordinarias": "70",
+                "Quantidade_Acoes_Preferenciais": "30",
+                "Versao": "1",
+            },
+            {
+                "CNPJ_Companhia": WEG,
+                "Tipo_Capital": "Capital Integralizado",
+                "Quantidade_Total_Acoes": "120",
+                "Quantidade_Acoes_Ordinarias": "80",
+                "Quantidade_Acoes_Preferenciais": "40",
+                "Versao": "2",
+            },
+        ]
+        fonte = FonteCvm(None, None, None, logging.getLogger("teste"))  # type: ignore[arg-type]
+        fonte._leitor = lambda *_: _LeitorFalso(arquivo, linhas)  # type: ignore[method-assign]
+
+        assert fonte._capital_do_fre(2025, {WEG}) == {
+            WEG: {
+                "versao": 2,
+                "total": 120,
+                "qt_acao_ordinaria": 80,
+                "qt_acao_preferencial": 40,
+            }
+        }
+
+    def test_aceite_itub4_fre_autoritativo_bate_com_dfp_apos_escala(self):
+        fonte = FonteCvm(None, None, None, logging.getLogger("teste"))  # type: ignore[arg-type]
+        fonte._composicao_do_dfp = lambda *_: {  # type: ignore[method-assign]
+            ITUB: {
+                "versao": 2,
+                "dt_refer": date(2025, 12, 31),
+                "total": 11_026_869,
+                "tesouraria": 345,
+                "qt_acao_ordinaria": 5_617_743,
+                "qt_acao_preferencial": 5_409_126,
+            }
+        }
+        fonte._capital_do_fre = lambda *_: {  # type: ignore[method-assign]
+            ITUB: {
+                "versao": 13,
+                "total": 11_026_869_192,
+                "qt_acao_ordinaria": 5_617_742_977,
+                "qt_acao_preferencial": 5_409_126_215,
+            }
+        }
+
+        capital = fonte.composicoes_de_capital(2025, {ITUB})[ITUB]
+
+        assert capital.escala_aplicada == 1000
+        assert capital.qt_acao_ordinaria == 5_617_742_977
+        assert capital.qt_acao_preferencial == 5_409_126_215
+        assert abs(capital.qt_acao_ordinaria - 5_617_743 * 1000) < 1000
+        assert abs(capital.qt_acao_preferencial - 5_409_126 * 1000) < 1000
+
+    def test_fre_e_autoritativo_para_on_pn_e_dfp_completa_classe_ausente(self):
+        fonte = FonteCvm(None, None, None, logging.getLogger("teste"))  # type: ignore[arg-type]
+        fonte._composicao_do_dfp = lambda *_: {  # type: ignore[method-assign]
+            WEG: {
+                "versao": 1,
+                "dt_refer": date(2025, 12, 31),
+                "total": 5_000_000,
+                "tesouraria": 10_000,
+                "qt_acao_ordinaria": 3_000_000,
+                "qt_acao_preferencial": 2_000_000,
+            },
+            TIM: {
+                "versao": 1,
+                "dt_refer": date(2025, 12, 31),
+                "total": 1_000,
+                "tesouraria": 10,
+                "qt_acao_ordinaria": 900,
+                "qt_acao_preferencial": 100,
+            },
+        }
+        fonte._capital_do_fre = lambda *_: {  # type: ignore[method-assign]
+            WEG: {
+                "versao": 1,
+                "total": 5_000_000_000,
+                "qt_acao_ordinaria": 3_100_000_000,
+                "qt_acao_preferencial": 1_900_000_000,
+            },
+            TIM: {
+                "versao": 1,
+                "total": 1_000_000,
+                "qt_acao_ordinaria": 1_000_000,
+            },
+        }
+
+        capitais = fonte.composicoes_de_capital(2025, {WEG, TIM})
+
+        assert capitais[WEG].qt_acao_ordinaria == 3_100_000_000
+        assert capitais[WEG].qt_acao_preferencial == 1_900_000_000
+        assert capitais[WEG].acoes_ex_tesouraria == 4_990_000_000
+        assert capitais[TIM].qt_acao_ordinaria == 1_000_000
+        assert capitais[TIM].qt_acao_preferencial == 100_000
+
+    def test_zero_explicito_no_fre_nao_herda_valor_do_dfp(self):
+        fonte = FonteCvm(None, None, None, logging.getLogger("teste"))  # type: ignore[arg-type]
+        fonte._composicao_do_dfp = lambda *_: {  # type: ignore[method-assign]
+            WEG: {
+                "versao": 1,
+                "dt_refer": date(2025, 12, 31),
+                "total": 100,
+                "tesouraria": 0,
+                "qt_acao_ordinaria": 100,
+                "qt_acao_preferencial": 10,
+            }
+        }
+        fonte._capital_do_fre = lambda *_: {  # type: ignore[method-assign]
+            WEG: {
+                "versao": 1,
+                "total": 100,
+                "qt_acao_ordinaria": 100,
+                "qt_acao_preferencial": 0,
+            }
+        }
+
+        capital = fonte.composicoes_de_capital(2025, {WEG})[WEG]
+
+        assert capital.qt_acao_ordinaria == 100
+        assert capital.qt_acao_preferencial == 0
+
+    def test_fre_sem_dfp_preserva_o_breakdown_on_pn(self):
+        fonte = FonteCvm(None, None, None, logging.getLogger("teste"))  # type: ignore[arg-type]
+        fonte._composicao_do_dfp = lambda *_: {}  # type: ignore[method-assign]
+        fonte._capital_do_fre = lambda *_: {  # type: ignore[method-assign]
+            WEG: {
+                "versao": 1,
+                "total": 120,
+                "qt_acao_ordinaria": 80,
+                "qt_acao_preferencial": 40,
+            }
+        }
+
+        capital = fonte.composicoes_de_capital(2025, {WEG})[WEG]
+
+        assert capital.fonte == "FRE_SEM_TESOURARIA"
+        assert capital.acoes_ex_tesouraria == 120
+        assert capital.qt_acao_ordinaria == 80
+        assert capital.qt_acao_preferencial == 40

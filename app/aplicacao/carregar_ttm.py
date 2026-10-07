@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from logging import Logger
 
-from app.aplicacao.carregar_fundamentos import data_de_entrega
+from app.aplicacao.carregar_fundamentos import data_de_entrega, tickers_do_ano_anterior
 from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import (
     GRUPO_CONSOLIDADO,
@@ -64,11 +64,18 @@ class CarregarTtm:
         self._forcar = False
 
     def executar(
-        self, anos: list[int], simbolos_pedidos: list[str] | None = None, forcar: bool = False
+        self,
+        anos: list[int],
+        simbolos_pedidos: list[str] | None = None,
+        forcar: bool = False,
+        universo_backtest: bool = False,
     ) -> ResultadoTtm:
+        """universo_backtest: TTM de todo papel liquido de algum ano do
+        COTAHIST, nao so dos monitorados - o mesmo universo da DFP e dos
+        proventos, para a serie historica (plano LAC, L3)."""
         resultado = ResultadoTtm()
         self._forcar = forcar
-        simbolos = self._resolver_universo(simbolos_pedidos)
+        simbolos = self._resolver_universo(simbolos_pedidos, universo_backtest)
         for ano in sorted(anos):
             self._processar_ano(ano, simbolos, resultado)
         if resultado.indicadores_gravados:
@@ -90,14 +97,16 @@ class CarregarTtm:
             resultado.anos_pulados.append(ano)
             return
 
-        tickers = self._fonte.tickers(ano)
-        if not tickers:
-            tickers = self._fonte.tickers(ano - 1)
+        tickers = self._fonte.tickers(ano) or tickers_do_ano_anterior(self._fonte, ano)
         identidades = {}
-        if self._identidade is not None:
-            with self._uow.transacao() as db:
+        with self._uow.transacao() as db:
+            if self._identidade is not None:
                 identidades = self._identidade.identidades(db)
-        selecionados, ausentes = resolver_tickers(simbolos, tickers, identidades)
+            # O FCA de 2015-2017 nao traz o codigo de negociacao: sem os CNPJs
+            # ja cadastrados (pela carga da DFP) nenhum ticker resolve - a
+            # mesma rede de seguranca do CarregarFundamentos.
+            conhecidos = self._cadastro.cnpjs_por_simbolo(db, simbolos)
+        selecionados, ausentes = resolver_tickers(simbolos, tickers, identidades, conhecidos)
         if ausentes:
             self._logger.warning("TTM %s sem CNPJ para: %s", ano, ", ".join(ausentes))
         cnpjs = {ticker.cnpj for ticker in selecionados.values()}
@@ -164,10 +173,14 @@ class CarregarTtm:
         resultado.anos_processados.append(ano)
         resultado.indicadores_gravados += len(indicadores)
 
-    def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str]:
+    def _resolver_universo(
+        self, simbolos_pedidos: list[str] | None, universo_backtest: bool = False
+    ) -> list[str]:
         if simbolos_pedidos:
             return sorted({s.strip().upper() for s in simbolos_pedidos if s.strip()})
         with self._uow.transacao() as db:
+            if universo_backtest:
+                return self._universo.listar_simbolos_liquidos(db)
             return self._universo.listar_simbolos_monitorados(db)
 
 

@@ -16,6 +16,9 @@ from app.adaptadores.cvm.fonte_ipe import FonteIpe
 from app.adaptadores.cvm.normalizador import NormalizadorDeLinhas
 from app.adaptadores.mensageria.publicador_sqs import PublicadorSqs
 from app.adaptadores.persistencia.repositorio_conciliacao import RepositorioConciliacaoSql
+from app.adaptadores.persistencia.repositorio_evento_corporativo import (
+    RepositorioEventoCorporativoSql,
+)
 from app.adaptadores.persistencia.repositorios import (
     RepositorioCadastroSql,
     RepositorioComunicadoSql,
@@ -40,6 +43,7 @@ from app.aplicacao.carregar_proventos import CarregarProventosContabeis
 from app.aplicacao.carregar_series_historicas import CarregarSeriesHistoricas
 from app.aplicacao.carregar_ttm import CarregarTtm
 from app.aplicacao.conciliar_precos import ConciliarPrecos
+from app.aplicacao.inferir_eventos_corporativos import InferirEventosCorporativos
 from app.config.database_config import ConfiguracaoDeBanco
 from app.config.settings import Settings
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
@@ -149,6 +153,18 @@ def montar_carga_proventos(settings: Settings, logger: Logger) -> CarregarProven
             colunas={"provento_contabil": COLUNAS_V16_FUNDAMENTOS["provento_contabil"]},
         ),
         nome_do_banco=settings.db_name,
+    )
+
+
+def montar_eventos_corporativos(
+    settings: Settings, logger: Logger
+) -> InferirEventosCorporativos:
+    banco = _montar_banco(settings, logger)
+    return InferirEventosCorporativos(
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio=RepositorioEventoCorporativoSql(),
+        repositorio_execucao=RepositorioExecucaoSql(logger),
+        logger=logger,
     )
 
 

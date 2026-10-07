@@ -87,6 +87,7 @@ class CarregarSeriesHistoricas:
             )
             with self._uow.transacao() as db:
                 gravados = self._series.salvar_candles_b3(db, candles)
+                isins = self._series.atualizar_isin_dos_tickers(db)
                 self._execucao.registrar(
                     db, FONTE_COTAHIST, str(ano), arquivo, STATUS_SUCESSO,
                     etag=assinatura.etag,
@@ -97,6 +98,8 @@ class CarregarSeriesHistoricas:
             resultado.anos_processados.append(ano)
             resultado.candles_gravados += gravados
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
+            if isins:
+                self._logger.info("COTAHIST %s: ISIN atualizado em %d tickers", ano, isins)
 
             if self._fonte_opcoes is not None and self._opcao is not None:
                 from datetime import date as _date

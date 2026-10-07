@@ -30,6 +30,8 @@ PISTAS_SEGURADORA: tuple[str, ...] = (
     "receitas de premios de seguros",
     "provisoes tecnicas",
     "sinistros ocorridos",
+    # Rotulo do DRE no padrao IFRS 17 (DFP a partir de 2023; BBSE3 e IRBR3 no DFP 2025).
+    "receitas das atividades seguradoras/resseguradoras",
 )
 
 

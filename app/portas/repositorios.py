@@ -83,6 +83,10 @@ class RepositorioSeries(Protocol):
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
         ...
 
+    def atualizar_isin_dos_tickers(self, db: Any) -> int:
+        """Copia o ISIN mais recente de cada papel (COTAHIST) para cvm_ticker (o FCA nao traz)."""
+        ...
+
 
 class RepositorioOpcao(Protocol):
     def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:

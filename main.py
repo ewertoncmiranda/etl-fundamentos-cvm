@@ -11,6 +11,7 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --rotina             # tudo do dia: IPE, DFP, TTM e COTAHIST
     python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
     python main.py --proventos --ano 2024 --universo-backtest  # DVA (infra V16)
+    python main.py --eventos-corporativos   # desdobramentos etc. (todos os anos)
 
 O --rotina e o comando padrao do servico no docker compose: e o que roda
 ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
@@ -31,6 +32,7 @@ from app.config.composicao import (
     montar_carga_ttm,
     montar_caso_de_uso,
     montar_conciliacao,
+    montar_eventos_corporativos,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -49,8 +51,8 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--universo-backtest",
         action="store_true",
-        help="com a carga de fundamentos: balancos de todo o universo do backtest "
-        "(acoes liquidas de cada ano no COTAHIST), nao so dos monitorados",
+        help="com a carga de fundamentos, --ttm ou --proventos: todo o universo do "
+        "backtest (acoes liquidas de cada ano no COTAHIST), nao so os monitorados",
     )
     parser.add_argument(
         "--rotina",
@@ -91,6 +93,12 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         "--proventos",
         action="store_true",
         help="JCP e dividendos por trimestre a partir da DVA da CVM (infra V16, plano LAC)",
+    )
+    parser.add_argument(
+        "--eventos-corporativos",
+        action="store_true",
+        help="desdobramento, grupamento e bonificacao a partir da marca ex do COTAHIST "
+        "e da composicao de capital ja carregados (sem download); --ano restringe",
     )
     parser.add_argument(
         "--conciliar",
@@ -136,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     if argumentos.proventos:
         return _carregar_proventos(argumentos, settings, logger)
 
+    if argumentos.eventos_corporativos:
+        return _inferir_eventos(argumentos, settings, logger)
+
     anos = argumentos.anos or settings.anos
     if not anos:
         logger.critical("Nenhum ano definido. Use --ano ou a variavel CVM_ANOS.")
@@ -162,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if argumentos.ttm:
             resultado_ttm = montar_carga_ttm(settings, logger).executar(
-                anos, argumentos.simbolos, argumentos.forcar
+                anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
             )
             logger.info(
                 "Carga TTM concluida | processados=%s | pulados=%s | indicadores=%d",
@@ -215,7 +226,8 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
             montar_caso_de_uso(settings, logger).executar(
                 [ano - 1, ano], simbolos, forcar, universo_backtest=not simbolos))),
         ("ultimos 12 meses (TTM)", lambda: _sem_erro(
-            montar_carga_ttm(settings, logger).executar([ano], simbolos, forcar))),
+            montar_carga_ttm(settings, logger).executar(
+                [ano], simbolos, forcar, universo_backtest=not simbolos))),
         ("preco oficial (COTAHIST)", lambda: _sem_erro(
             montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))),
         # Plano LAC (L1): proventos da DVA do ano anterior e do corrente, pelo
@@ -253,6 +265,19 @@ def _carregar_proventos(argumentos: argparse.Namespace, settings: Settings, logg
     logger.info(
         "Carga de proventos concluida | anos=%s | periodos=%d",
         resultado.anos_processados, resultado.periodos_gravados,
+    )
+    return 0
+
+
+def _inferir_eventos(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    try:
+        resultado = montar_eventos_corporativos(settings, logger).executar(argumentos.anos)
+    except Exception as erro:
+        logger.critical("Inferencia de eventos abortada: %s", erro, exc_info=True)
+        return 1
+    logger.info(
+        "Eventos corporativos concluida | candidatos=%d | gravados=%d | descartados=%s",
+        resultado.candidatos, resultado.gravados, dict(resultado.motivos()),
     )
     return 0
 
