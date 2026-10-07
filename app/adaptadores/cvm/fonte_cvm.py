@@ -30,6 +30,7 @@ from app.dominio.modelo import (
     ComposicaoCapital,
     DocumentoContabil,
     Empresa,
+    LinhaContabil,
     Ticker,
 )
 from app.dominio.texto import normalizar
@@ -41,6 +42,9 @@ SUFIXO_DEMONSTRACAO = {
     BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DFC_MD: "DFC_MD",
     DVA: "DVA", DMPL: "DMPL",
 }
+
+# Demonstracoes de fluxo: no ITR vem acumuladas desde o inicio do exercicio.
+DEMONSTRACOES_ACUMULADAS = (DRE, DFC_MI, DFC_MD, DVA, DMPL)
 
 PACOTE_DFP = "DFP"
 PACOTE_FCA = "FCA"
@@ -337,15 +341,6 @@ class FonteCvm:
                     if convertida is None:
                         continue
                     referencia = _data_ou_hoje(linha_crua.get("DT_REFER"))
-                    # DRE do ITR pode trazer no mesmo arquivo o trimestre isolado
-                    # e o acumulado no ano. TTM usa o acumulado iniciado em 1º/1;
-                    # misturar os dois produz contas duplicadas e um resultado
-                    # silenciosamente errado.
-                    if (
-                        demonstracao in (DRE, DFC_MI, DFC_MD, DVA, DMPL)
-                        and convertida.dt_ini_exerc != date(referencia.year, 1, 1)
-                    ):
-                        continue
                     chave = (cnpj, referencia)
                     versao = self._normalizador.versao(linha_crua)
                     registro = acumulado.setdefault(
@@ -363,6 +358,10 @@ class FonteCvm:
                         registro["versao"] = versao
                         registro["linhas"] = {}
                     registro["linhas"].setdefault(demonstracao, []).append(convertida)
+        for dados in acumulado.values():
+            for demonstracao in DEMONSTRACOES_ACUMULADAS:
+                if demonstracao in dados["linhas"]:
+                    dados["linhas"][demonstracao] = _so_acumulado(dados["linhas"][demonstracao])
         return {chave: dados for chave, dados in acumulado.items() if dados["linhas"]}
 
     # --- quantidade de acoes (DFP + FRE) ----------------------------------
@@ -481,6 +480,15 @@ class FonteCvm:
                     "total": _inteiro(linha.get("Quantidade_Total_Acoes")),
                 }
         return {cnpj: dados["total"] for cnpj, dados in saida.items()}
+
+
+def _so_acumulado(linhas: list[LinhaContabil]) -> list[LinhaContabil]:
+    """O ITR traz no mesmo arquivo o trimestre isolado e o acumulado do
+    exercicio; misturar os dois duplica contas e da um resultado errado em
+    silencio. O acumulado e o que comeca mais cedo: o inicio do exercicio
+    social, que nem sempre e 1o/1 (RAIZ4 vai de abril a marco)."""
+    inicio = min(linha.dt_ini_exerc for linha in linhas)
+    return [linha for linha in linhas if linha.dt_ini_exerc == inicio]
 
 
 def _inteiro(valor: str | None) -> int:

@@ -166,3 +166,37 @@ class TestCacheDoAnoAberto:
 
         assert fonte._conteudo("ITR", 2026) == b"velho"
         assert cliente.downloads == 0
+
+
+class TestSoAcumulado:
+
+    def _linha(self, inicio, valor):
+        from datetime import date
+        from decimal import Decimal
+
+        from app.dominio.modelo import LinhaContabil
+
+        return LinhaContabil(
+            cd_conta="3.11", ds_conta="Lucro", vl_conta=Decimal(valor), conta_fixa=True,
+            demonstracao=DRE, dt_ini_exerc=inicio, dt_fim_exerc=date(2025, 12, 31),
+        )
+
+    def test_ano_civil_fica_com_o_acumulado_desde_janeiro(self):
+        from datetime import date
+
+        from app.adaptadores.cvm.fonte_cvm import _so_acumulado
+
+        linhas = [self._linha(date(2025, 10, 1), "3"), self._linha(date(2025, 1, 1), "9")]
+
+        assert [linha.vl_conta for linha in _so_acumulado(linhas)] == [9]
+
+    def test_exercicio_de_abril_fica_com_o_acumulado_desde_abril(self):
+        # RAIZ4, ITR de dezembro: trimestre out-dez e acumulado abr-dez.
+        # O filtro antigo (1o/1) descartava os dois e a empresa ficava sem TTM.
+        from datetime import date
+
+        from app.adaptadores.cvm.fonte_cvm import _so_acumulado
+
+        linhas = [self._linha(date(2025, 10, 1), "3"), self._linha(date(2025, 4, 1), "7")]
+
+        assert [linha.vl_conta for linha in _so_acumulado(linhas)] == [7]

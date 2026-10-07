@@ -291,6 +291,8 @@ Comando novo: `--eventos-corporativos [--ano ...]`, idempotente, registrando `EV
 
 ### LAC-ETL-3: histórico trimestral desde 2011 (L3)
 
+**Status (07-10-2026): EM ANDAMENTO.** Código pronto: `escolher_trios_por_corte` monta um TTM por trimestre (DFP casada pela data, entre os dois ITRs) e o filtro do ITR fica com o acumulado que começa no início do exercício social, não em 1º/1 (`_so_acumulado`). Falta a carga do ITR 2011–2023. Proventos de quem fecha em março (RAIZ4) ficam só com o valor anual: os ITRs posteriores à DFP do ano são descartados no isolamento, sem dupla contagem.
+
 - O `CarregarTtm` monta hoje **só o trimestre mais recente de cada ano** (`escolher_trios` pega o ITR mais recente). Para o histórico, montar o trio de **cada** trimestre (março, junho e setembro de cada ano, mais o anual), mantendo a regra do mesmo grupo.
 - Carregar ITR 2011–2023 (download novo; o mesmo leitor). Grava `indicador_fundamentalista` com `tipo_periodo = 'TTM'` por trimestre, com a `data_entrega` do ITR.
 - Tratar o exercício social fora do ano civil (RAIZ4, de abril a março), pendência aberta em 28-09-2026: o acumulado do ITR começa no início do exercício, não em 1º de janeiro.

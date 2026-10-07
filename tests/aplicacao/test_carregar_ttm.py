@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.aplicacao.carregar_ttm import escolher_trios
+from app.aplicacao.carregar_ttm import escolher_trios, escolher_trios_por_corte
 from app.dominio.modelo import (
     DRE,
     GRUPO_CONSOLIDADO,
@@ -100,3 +100,50 @@ class TestEscolherTrios:
         )
 
         assert trios == {}
+
+
+class TestTriosPorCorte:
+
+    def test_um_trio_por_trimestre_do_ano(self):
+        trios = escolher_trios_por_corte(
+            [dfp(GRUPO_CONSOLIDADO, "100")],
+            [itr(GRUPO_CONSOLIDADO, 2026, "10", m, d) for m, d in ((3, 31), (6, 30), (9, 30))],
+            [itr(GRUPO_CONSOLIDADO, 2025, "8", m, d) for m, d in ((3, 31), (6, 30), (9, 30))],
+        )
+
+        assert sorted(corte for _, corte in trios) == [
+            date(2026, 3, 31), date(2026, 6, 30), date(2026, 9, 30)
+        ]
+
+    def test_dfp_do_proprio_ano_fora_da_janela_nao_entra(self):
+        # Reprocessando 2025: a DFP de dez/2025 ja existe, mas e posterior ao
+        # ITR de junho; o trio usa a de dez/2024.
+        dfp_2024 = doc(TIPO_DOC_DFP, GRUPO_CONSOLIDADO, date(2024, 1, 1), date(2024, 12, 31), "50")
+        trios = escolher_trios_por_corte(
+            [dfp_2024, dfp(GRUPO_CONSOLIDADO, "100")],
+            [itr(GRUPO_CONSOLIDADO, 2025, "10")],
+            [itr(GRUPO_CONSOLIDADO, 2024, "8")],
+        )
+
+        assert trios[(TIM, date(2025, 6, 30))][0].dt_fim_exerc == date(2024, 12, 31)
+
+    def test_exercicio_de_abril_a_marco_usa_a_dfp_de_marco(self):
+        # RAIZ4: exercicio de 1/4 a 31/3. TTM de jun/2025 = DFP mar/2025
+        # + abr-jun/2025 - abr-jun/2024.
+        def raiz(tipo, inicio, fim, lucro):
+            return doc(tipo, GRUPO_CONSOLIDADO, inicio, fim, lucro)
+
+        trios = escolher_trios_por_corte(
+            [
+                raiz(TIPO_DOC_DFP, date(2023, 4, 1), date(2024, 3, 31), "70"),
+                raiz(TIPO_DOC_DFP, date(2024, 4, 1), date(2025, 3, 31), "100"),
+            ],
+            [raiz(TIPO_DOC_ITR, date(2025, 4, 1), date(2025, 6, 30), "30")],
+            [raiz(TIPO_DOC_ITR, date(2024, 4, 1), date(2024, 6, 30), "20")],
+        )
+
+        anual, atual, anterior = trios[(TIM, date(2025, 6, 30))]
+        assert anual.dt_fim_exerc == date(2025, 3, 31)
+        (lucro,) = MontadorTtm().montar(anual, atual, anterior).da_demonstracao(DRE)
+        assert lucro.vl_conta == Decimal("110")
+        assert lucro.dt_ini_exerc == date(2024, 7, 1)
