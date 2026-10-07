@@ -9,7 +9,7 @@ modo de falha mais provavel na pratica.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import text
@@ -27,9 +27,33 @@ TABELAS_OBRIGATORIAS: tuple[str, ...] = (
 )
 
 
+# Colunas e tabelas da infra V16 (plano LAC) que o codigo grava. O ETL novo
+# rodando num banco sem a V16 para aqui, com o que fazer, em vez de estourar
+# um erro de SQL no meio da carga.
+COLUNAS_V16_FUNDAMENTOS: dict[str, tuple[str, ...]] = {
+    "fato_contabil": ("coluna_df",),
+    "indicador_fundamentalista": (
+        "ativo_total", "ativo_circulante", "passivo_circulante", "lucro_bruto",
+    ),
+    "provento_contabil": ("jcp", "dividendos", "por_acao"),
+    "evento_corporativo": ("fator_acoes",),
+}
+COLUNAS_V16_COTAHIST: dict[str, tuple[str, ...]] = {
+    "cotacao_b3_diaria": (
+        "especificacao", "marca_ex", "fator_cotacao", "preco_medio",
+        "melhor_oferta_compra", "melhor_oferta_venda",
+    ),
+}
+
+
 class VerificadorDeSchema:
-    def __init__(self, tabelas: Sequence[str] = TABELAS_OBRIGATORIAS):
+    def __init__(
+        self,
+        tabelas: Sequence[str] = TABELAS_OBRIGATORIAS,
+        colunas: Mapping[str, Sequence[str]] | None = None,
+    ):
         self._tabelas = tuple(tabelas)
+        self._colunas = {t: tuple(c) for t, c in (colunas or {}).items()}
 
     def conferir(self, db: Any, nome_do_banco: str) -> None:
         """Compara em Python em vez de montar um IN na query.
@@ -48,6 +72,40 @@ class VerificadorDeSchema:
 
         if faltando:
             raise ErroPermanente(self._mensagem(faltando, nome_do_banco))
+
+        if self._colunas:
+            colunas_faltando = self._colunas_faltando(db, nome_do_banco)
+            if colunas_faltando:
+                raise ErroPermanente(self._mensagem_colunas(colunas_faltando, nome_do_banco))
+
+    def _colunas_faltando(self, db: Any, nome_do_banco: str) -> list[str]:
+        consulta = text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = :schema"
+        )
+        existentes = {
+            (linha[0], linha[1]) for linha in db.execute(consulta, {"schema": nome_do_banco})
+        }
+        return [
+            f"{tabela}.{coluna}"
+            for tabela, colunas in self._colunas.items()
+            for coluna in colunas
+            if (tabela, coluna) not in existentes
+        ]
+
+    @staticmethod
+    def _mensagem_colunas(faltando: Sequence[str], nome_do_banco: str) -> str:
+        return "\n".join(
+            [
+                f"O banco '{nome_do_banco}' nao tem {len(faltando)} coluna(s) que este ETL grava:",
+                *(f"  - {c}" for c in faltando),
+                "",
+                "Elas vem da migracao V16 (plano LAC, infra-b3-ecossytem/SPEC.md).",
+                "Aplicar pelo db-migrate do compose da infra:",
+                "",
+                "  docker compose -f docker-compose-local.yml up db-migrate",
+            ]
+        )
 
     @staticmethod
     def _mensagem(faltando: Sequence[str], nome_do_banco: str) -> str:
