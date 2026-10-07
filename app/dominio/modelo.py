@@ -82,6 +82,9 @@ class Empresa:
     cd_cvm: str | None = None
     setor: str | None = None
     plano_contas: str = PLANO_GERAL
+    situacao_registro: str | None = None
+    data_constituicao: date | None = None
+    uf_municipio: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,7 @@ class Ticker:
     cnpj: str
     tipo_valor_mobiliario: str | None = None
     mercado: str | None = None
+    isin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -194,6 +198,7 @@ class Indicadores:
     divida_bruta: Decimal | None = None
     caixa_equivalentes: Decimal | None = None
     fluxo_caixa_operacional: Decimal | None = None
+    fco_bruto: Decimal | None = None
     capex: Decimal | None = None
     acoes_ex_tesouraria: int | None = None
 

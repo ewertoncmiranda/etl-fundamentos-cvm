@@ -7,7 +7,7 @@ responsabilidade do dominio.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import date, datetime
 from logging import Logger
 
@@ -69,11 +69,16 @@ class FonteCvm:
         cache: CacheDeArquivos,
         normalizador: NormalizadorDeLinhas,
         logger: Logger,
+        hoje: Callable[[], date] = date.today,
     ):
         self._cliente = cliente
         self._cache = cache
         self._normalizador = normalizador
         self._logger = logger
+        self._hoje = hoje
+        # Um HEAD por arquivo por execucao: a carga pede a assinatura para
+        # decidir se processa, e o download reaproveita a mesma resposta.
+        self._assinaturas: dict[str, Assinatura] = {}
 
     # --- pacotes -----------------------------------------------------------
 
@@ -82,26 +87,49 @@ class FonteCvm:
         cache, segue com o cache em vez de abortar: assinatura sem ETag nunca
         e "inalterada", entao o ETag antigo nao e sobrescrito por um falso."""
         caminho = caminho_do_pacote(tipo, ano)
+        if caminho in self._assinaturas:
+            return self._assinaturas[caminho]
         try:
-            return self._cliente.assinatura(caminho)
+            assinatura = self._cliente.assinatura(caminho)
         except FonteIndisponivel as erro:
             nome = caminho.rsplit("/", 1)[-1]
             if not self._cache.tem(nome):
                 raise
             self._logger.warning("CVM indisponivel (%s); usando %s do cache", erro, nome)
             return Assinatura(etag=None, last_modified=None, tamanho_bytes=None)
+        self._assinaturas[caminho] = assinatura
+        return assinatura
 
     def _conteudo(self, tipo: str, ano: int, forcar_download: bool = False) -> bytes:
         caminho = caminho_do_pacote(tipo, ano)
         nome = caminho.rsplit("/", 1)[-1]
 
-        if not forcar_download and self._cache.tem(nome):
+        if (
+            not forcar_download
+            and self._cache.tem(nome)
+            and not self._copia_desatualizada(tipo, ano, nome)
+        ):
             self._logger.debug("Usando %s do cache", nome)
             return self._cache.ler(nome)
 
+        assinatura = self._assinaturas.get(caminho)
         conteudo = self._cliente.baixar(caminho)
-        self._cache.gravar(nome, conteudo)
+        self._cache.gravar(nome, conteudo, assinatura.etag if assinatura else None)
         return conteudo
+
+    def _copia_desatualizada(self, tipo: str, ano: int, nome: str) -> bool:
+        """A CVM republica os arquivos do ano corrente e do anterior (ITR do
+        trimestre, DFP entregue com atraso, reapresentacoes); os mais antigos
+        nao mudam e ficam no cache sem HEAD. Sem ETag na resposta (CVM fora do
+        ar) a copia segue valendo; copia sem ETag gravado (cache anterior a
+        esta regra) e baixada de novo uma vez."""
+        if ano < self._hoje().year - 1:
+            return False
+        etag = self.assinatura(tipo, ano).etag
+        if not etag or etag == self._cache.etag_de(nome):
+            return False
+        self._logger.info("CVM republicou %s; baixando de novo", nome)
+        return True
 
     def _leitor(self, tipo: str, ano: int, forcar_download: bool = False) -> LeitorDePacoteCvm:
         return LeitorDePacoteCvm(
@@ -123,6 +151,7 @@ class FonteCvm:
                     cnpj=(linha.get("CNPJ_Companhia") or "").strip(),
                     tipo_valor_mobiliario=(linha.get("Valor_Mobiliario") or "").strip(),
                     mercado="Bolsa",
+                    isin=(linha.get("Codigo_ISIN") or "").strip() or None,
                 )
         return saida
 
@@ -136,11 +165,19 @@ class FonteCvm:
                 cnpj = (linha.get("CNPJ_Companhia") or "").strip()
                 if not cnpj:
                     continue
+                data_str = (linha.get("Data_Constituicao") or "").strip()
+                try:
+                    data_constituicao: date | None = datetime.strptime(data_str, "%Y-%m-%d").date()
+                except ValueError:
+                    data_constituicao = None
                 saida[cnpj] = Empresa(
                     cnpj=cnpj,
                     denominacao=(linha.get("Nome_Empresarial") or "").strip(),
                     cd_cvm=(linha.get("Codigo_CVM") or "").strip() or None,
                     setor=(linha.get("Setor_Atividade") or "").strip() or None,
+                    situacao_registro=(linha.get("Situacao_Registro") or "").strip() or None,
+                    data_constituicao=data_constituicao,
+                    uf_municipio=(linha.get("UF_Municipio") or "").strip() or None,
                 )
         return saida
 

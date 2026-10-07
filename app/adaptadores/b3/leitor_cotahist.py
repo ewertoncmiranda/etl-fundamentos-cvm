@@ -92,6 +92,7 @@ class LeitorCotahist:
                 continue
             fator = max(_inteiro(linha[210:217]), 1)
             especificacao = linha[39:49].strip()
+            isin = linha[230:242].strip() or None
             resultado.append(
                 CandleB3(
                     simbolo=simbolo,
@@ -109,6 +110,7 @@ class LeitorCotahist:
                     preco_medio=_preco_ou_nulo(linha[95:108], fator),
                     melhor_oferta_compra=_preco_ou_nulo(linha[121:134], fator),
                     melhor_oferta_venda=_preco_ou_nulo(linha[134:147], fator),
+                    isin=isin,
                 )
             )
         return resultado

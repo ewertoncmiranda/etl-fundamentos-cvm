@@ -143,6 +143,9 @@ class RepositorioCadastroSql:
                 "denominacao": e.denominacao or e.cnpj,
                 "setor": e.setor,
                 "plano_contas": e.plano_contas,
+                "situacao_registro": e.situacao_registro,
+                "data_constituicao": e.data_constituicao,
+                "uf_municipio": e.uf_municipio,
             }
             for e in empresas
         ]
@@ -150,7 +153,7 @@ class RepositorioCadastroSql:
             db,
             EmpresaEntity,
             registros,
-            ("cd_cvm", "denominacao", "setor", "plano_contas"),
+            ("cd_cvm", "denominacao", "setor", "plano_contas", "situacao_registro", "data_constituicao", "uf_municipio"),
         )
 
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
@@ -159,6 +162,7 @@ class RepositorioCadastroSql:
                 "simbolo": t.simbolo,
                 "cnpj": t.cnpj,
                 "tipo_valor_mobiliario": t.tipo_valor_mobiliario,
+                "isin": t.isin,
                 "mercado": t.mercado,
                 "ativo": True,
             }
@@ -168,7 +172,7 @@ class RepositorioCadastroSql:
             db,
             TickerEntity,
             registros,
-            ("cnpj", "tipo_valor_mobiliario", "mercado", "ativo"),
+            ("cnpj", "tipo_valor_mobiliario", "isin", "mercado", "ativo"),
         )
 
     def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
@@ -329,6 +333,7 @@ class RepositorioIndicadorSql:
         "divida_bruta",
         "caixa_equivalentes",
         "fluxo_caixa_operacional",
+        "fco_bruto",
         "capex",
         "acoes_ex_tesouraria",
         "lpa",
@@ -367,6 +372,7 @@ class RepositorioIndicadorSql:
                 "divida_bruta": i.divida_bruta,
                 "caixa_equivalentes": i.caixa_equivalentes,
                 "fluxo_caixa_operacional": i.fluxo_caixa_operacional,
+                "fco_bruto": i.fco_bruto,
                 "capex": i.capex,
                 "acoes_ex_tesouraria": i.acoes_ex_tesouraria,
                 "lpa": i.lpa,
@@ -458,6 +464,7 @@ class RepositorioSeriesSql:
                 "volume": candle.volume,
                 "numero_negocios": candle.numero_negocios,
                 "volume_financeiro": candle.volume_financeiro,
+                "isin": candle.isin,
                 "especificacao": candle.especificacao,
                 "marca_ex": candle.marca_ex,
                 "fator_cotacao": candle.fator_cotacao,
@@ -473,7 +480,7 @@ class RepositorioSeriesSql:
             registros,
             (
                 "abertura", "maxima", "minima", "fechamento", "volume",
-                "numero_negocios", "volume_financeiro", "especificacao", "marca_ex",
+                "numero_negocios", "volume_financeiro", "isin", "especificacao", "marca_ex",
                 "fator_cotacao", "preco_medio", "melhor_oferta_compra", "melhor_oferta_venda",
             ),
         )

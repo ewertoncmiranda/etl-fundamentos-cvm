@@ -115,6 +115,7 @@ class MontadorDeIndicadores:
             divida_bruta=insumos.get("divida_bruta"),
             caixa_equivalentes=insumos.get("caixa_equivalentes"),
             fluxo_caixa_operacional=insumos.get("fluxo_caixa_operacional"),
+            fco_bruto=insumos.get("fco_bruto"),
             capex=insumos.get("capex"),
             acoes_ex_tesouraria=acoes,
             lpa=derivados["lpa"],

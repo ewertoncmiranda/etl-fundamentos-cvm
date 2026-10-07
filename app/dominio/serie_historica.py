@@ -27,3 +27,4 @@ class CandleB3:
     preco_medio: Decimal | None = None
     melhor_oferta_compra: Decimal | None = None
     melhor_oferta_venda: Decimal | None = None
+    isin: str | None = None
