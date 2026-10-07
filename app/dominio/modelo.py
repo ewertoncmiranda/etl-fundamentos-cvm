@@ -25,6 +25,7 @@ BPA = "BPA"
 BPP = "BPP"
 DRE = "DRE"
 DFC_MI = "DFC_MI"
+DFC_MD = "DFC_MD"
 # Plano LAC (infra V16): DVA traz JCP e dividendos por periodo (L1); a DMPL
 # entra so como dado bruto, com a coluna do patrimonio em coluna_df.
 DVA = "DVA"
@@ -104,6 +105,8 @@ class ComposicaoCapital:
     dt_refer: date
     acoes_ex_tesouraria: int
     fonte: str
+    qt_acao_ordinaria: int = 0
+    qt_acao_preferencial: int = 0
     escala_aplicada: int = 1
     divergencia_fre_dfp: float | None = None
 

@@ -16,7 +16,7 @@ padroniza a descricao das contas obrigatorias mesmo quando a posicao muda.
 
 from __future__ import annotations
 
-from app.dominio.modelo import BPA, BPP, DFC_MI, DRE, PLANO_GERAL
+from app.dominio.modelo import BPA, BPP, DFC_MD, DFC_MI, DRE, PLANO_GERAL
 from app.dominio.plano_contas.regra import RegraConta
 
 # --- estaveis nos tres planos ----------------------------------------------
@@ -149,7 +149,26 @@ _SO_GERAL = (
     ),
 )
 
-REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL
+# --- exclusiva da DFC metodo direto (DFC_MD) ----------------------------------
+# Aplicavel apenas quando a empresa publica pelo metodo direto; para as demais
+# (metodo indireto, a maioria) retorna None — ausencia explicita via cobertura.
+# Pendente de migracao no mart (coluna indicador_fundamentalista.fco_bruto)
+# antes de ser propagada para Indicadores. Os dados brutos ja ficam em
+# fato_contabil apos TASK-E15.
+_EXCLUSIVO_DFC_MD = (
+    RegraConta(
+        metrica="fco_bruto",
+        demonstracao=DFC_MD,
+        rotulos=(
+            "recebimentos de clientes e de outros",
+            "recebimentos de clientes",
+        ),
+        codigos=("6.01.01",),
+        observacao="DFC_MD apenas; sub-contas sao ST_CONTA_FIXA=N, resolucao por rotulo",
+    ),
+)
+
+REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL + _EXCLUSIVO_DFC_MD
 
 # Auxiliar, fora de REGRAS: nao vira coluna do mart. So serve para conferir a
 # divisao 3.11.01/3.11.02 quando a parcela do controlador vem zerada.

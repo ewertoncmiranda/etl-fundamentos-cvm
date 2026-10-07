@@ -130,6 +130,12 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | REQ-08 | Carregar série diária bruta do COTAHIST/B3 apenas para ativos monitorados | IMPLEMENTADO (2026-09-26) |
 | REQ-07 | Suportar plano de contas de seguradora | EM ANDAMENTO (código existe, não exercitado) |
 | REQ-09 | Carregar comunicados oficiais da base IPE (`--comunicados`) para os tickers com CNPJ em `cvm_ticker`, gravar em `comunicado_cvm` (`infra#CTR-08`) e publicar `sqs-comunicados-publicados` (`infra#CTR-09`) só com o que é novo | IMPLEMENTADO (2026-09-26) |
+| REQ-10 | Gravar `numero_negocios` por pregão em `cotacao_b3_diaria` a partir do COTAHIST (posições 148–152) | PLANEJADO |
+| REQ-11 | Capturar e persistir o código ISIN de cada papel, cruzando COTAHIST (posições 231–242) e FCA `valor_mobiliario`; gravar em `cvm_ticker` e `cotacao_b3_diaria` | PLANEJADO |
+| REQ-12 | Carregar breakdown de ações ordinárias e preferenciais (`QT_ACAO_ORDINARIA`, `QT_ACAO_PREFERENCIAL`, respectivas em tesouraria) da composição de capital do DFP e do FRE | EM ANDAMENTO (DFP 2026-10-07, TASK-E12; FRE em TASK-E14) |
+| REQ-13 | Gravar `situacao_registro` e `data_constituicao` da empresa a partir do FCA `geral`; campo `uf_municipio` como localização da sede | PLANEJADO |
+| REQ-14 | Abrir `DFC_MD` (DFC método direto) do ZIP do DFP/ITR e persistir em `fato_contabil` com `demonstracao = 'DFC_MD'`, quando presente | IMPLEMENTADO (2026-10-07, TASK-E15) |
+| REQ-15 | Capturar dados de opções do COTAHIST (BDI 12, 14) — vencimento, preço de exercício, código base — após decisão DEC-E09 | PLANEJADO |
 
 | ID | Não funcional | Status |
 |---|---|---|
@@ -171,6 +177,7 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | DEC-E06 | Carregar todas as companhias ou só as monitoradas? | **Só as monitoradas.** Um lugar só para escolher ativo |
 | DEC-E07 | Chave dos comunicados | **`numProtocolo` do link**, não `Protocolo_Entrega` (vazio em 501 linhas de 2026). Tabela guarda CNPJ; ticker na leitura |
 | DEC-E08 | Comunicados: onde descobrir o CNPJ do ticker | **`cvm_ticker`** (mantida pela carga de fundamentos), em vez de baixar o FCA de novo |
+| DEC-E09 | Opções do COTAHIST: tabela dedicada ou extensão de `cotacao_b3_diaria`? | PLANEJADO — opções têm campos sem análogo em ações (vencimento, preço de exercício, código base); uma tabela `opcao_b3_diaria` separada evita NULLs em massa em `cotacao_b3_diaria` e permite schema próprio. Decidir antes de TASK-E16 |
 
 ---
 
@@ -184,6 +191,12 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | ISS-E04 | Médio | `RENT3` diverge 43,8% do Fundamentus sem explicação; a DRE extraída fecha internamente | PLANEJADO |
 | ISS-E05 | Baixo | `PLANO_SEGURADORA` não exercitado com dado real | PLANEJADO |
 | ISS-E06 | Baixo | Ticker de companhia sem DFP consolidada cai para individual sem sinalizar na resposta | PLANEJADO |
+| ISS-E07 | Médio | `numero_negocios` (posições 148–152 do COTAHIST) é lido pelo leitor mas nunca gravado em `cotacao_b3_diaria`; sem ele não há como distinguir volume concentrado (poucos negócios grandes) de volume distribuído | PLANEJADO (TASK-E10) |
+| ISS-E08 | Médio | ISIN disponível em duas fontes (COTAHIST posições 231–242; FCA `valor_mobiliario`) mas nunca lido nem persistido; sem ISIN não é possível resolver renomeações de ticker de forma canônica nem cruzar com bases internacionais | PLANEJADO (TASK-E11) |
+| ISS-E09 | Médio | `QT_ACAO_ORDINARIA` e `QT_ACAO_PREFERENCIAL` da composição de capital do DFP chegam sempre `0` porque o domínio `ComposicaoCapital` não as carrega; a entidade ORM já tem as colunas — é apenas uma omissão no mapeamento de domínio | IMPLEMENTADO (TASK-E12, 2026-10-07) |
+| ISS-E10 | Baixo | `Situacao_Registro` e `Data_Constituicao` do FCA `geral` são ignorados; empresa com registro cancelado na CVM não pode ser distinguida de empresa ativa na consulta do painel | PLANEJADO (TASK-E13) |
+| ISS-E11 | Baixo | `DFC_MD` (DFC método direto) está presente no ZIP do DFP/ITR mas nunca é aberto; empresas que só reportam o método direto ficam sem dados de fluxo de caixa operacional | IMPLEMENTADO (TASK-E15, 2026-10-07) |
+| ISS-E12 | Baixo | Registros de opções do COTAHIST (BDI 12, 14) são descartados no filtro de mercado; dados de vencimento, preço de exercício e código base ficam fora do ecossistema | PLANEJADO (TASK-E16, depende DEC-E09) |
 
 ---
 
@@ -200,6 +213,21 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | TASK-E06 | Fixar convenção de ROIC e documentá-la | ISS-E03 | PLANEJADO |
 | TASK-E08 | Carga de comunicados da base IPE com ETag, dedupe por protocolo, upsert por versão e evento por ticker | REQ-09 | IMPLEMENTADO (2026-09-26) |
 | TASK-E09 | Agendar `--comunicados` diariamente (cron do host ou GitHub Actions); sem novidade custa 2 HEAD | REQ-09 | PLANEJADO |
+
+### Backlog: dados disponíveis nas fontes não capturados (2026-10-07)
+
+As tarefas abaixo cobrem campos presentes nos arquivos já baixados que o ETL ignora hoje. Todas requerem migration em `infra-b3-ecossytem` antes de serem iniciadas, exceto TASK-E12 (ORM já tem as colunas) e TASK-E17 (só adiciona ao catálogo existente). Antes de começar qualquer TASK deste bloco: abrir a tarefa correspondente no hub (`infra-b3-ecossytem/SPEC.md` seção 1A.4) e marcar `EM ANDAMENTO`.
+
+| ID | Tarefa | Depende | Status |
+|---|---|---|---|
+| TASK-E10 | **Número de negócios (COTAHIST):** ler posições 148–152 (`numero_negocios`) no `leitor_cotahist.py`; incluir no upsert de `cotacao_b3_diaria`. **Migration:** `ALTER TABLE cotacao_b3_diaria ADD COLUMN numero_negocios INT NULL`. **Aceite:** PETR4 em qualquer pregão de 2025 tem `numero_negocios > 0`; `pytest` cobre o campo no leitor com fixture de linha fixa | REQ-10, migration nova | PLANEJADO |
+| TASK-E11 | **ISIN (COTAHIST + FCA):** (1) ler posições 231–242 do `leitor_cotahist.py` e gravar `isin` em `cotacao_b3_diaria`; (2) ler coluna `Codigo_ISIN` do `fca_cia_aberta_valor_mobiliario_{ano}.csv` em `fonte_cvm.tickers()` e gravar em `cvm_ticker`. **Migration:** `ADD COLUMN isin VARCHAR(12) NULL` nas duas tabelas. **Aceite:** PETR4 tem `isin = 'BRPETRPDIPBS'` em `cvm_ticker`; ISIN do COTAHIST bate com o do FCA para o mesmo papel | REQ-11, migration nova | PLANEJADO |
+| TASK-E12 | **Breakdown ON/PN (DFP composição de capital):** no domínio `ComposicaoCapital` adicionar campos `qt_acao_ordinaria`, `qt_acao_preferencial`; em `fonte_cvm._composicao_do_dfp()` ler `QT_ACAO_ORDINARIA` e `QT_ACAO_PREFERENCIAL`; escala detectada via FRE aplicada a ambos; `repositorios.salvar_composicao()` passa os dois campos. **Sem migration** — `ComposicaoCapitalEntity` já tem as colunas. Nota: `qt_acao_ord_tesouro`/`qt_acao_pref_tesouro` não adicionados — entidade ORM não tem essas colunas; cobertos por TASK-E14 se necessário. **Aceite:** WEG DFP 2024 tem `qt_acao_ordinaria > 0` e `qt_acao_preferencial = 0`; ITUB4 tem as duas positivas | REQ-12 | IMPLEMENTADO (2026-10-07) |
+| TASK-E13 | **Situação do registro CVM (FCA geral):** em `fonte_cvm.empresas()` ler `Situacao_Registro`, `Data_Constituicao` e `UF_Municipio` do `fca_cia_aberta_geral_{ano}.csv`. **Migration:** `ADD COLUMN situacao_registro VARCHAR(30) NULL`, `data_constituicao DATE NULL`, `uf_municipio VARCHAR(2) NULL` em `cvm_empresa`. **Aceite:** empresa com registro cancelado aparece com `situacao_registro = 'CANCELADA'`; campo `NULL` para companhia não encontrada no FCA do ano | REQ-13, migration nova | PLANEJADO |
+| TASK-E14 | **Breakdown ON/PN via FRE:** complementar TASK-E12 usando o FRE como fonte autoritativa das classes; em `fonte_cvm._capital_do_fre()` ler linhas de `Tipo_Capital = 'ações ordinárias'` e `'ações preferenciais'` além de `'capital integralizado'`; consolidar com os valores do DFP usando a mesma lógica de escala. **Aceite:** ITUB4 tem `qt_acao_ordinaria` e `qt_acao_preferencial` distintos vindos do FRE, batendo com o DFP | REQ-12, TASK-E12 | PLANEJADO |
+| TASK-E15 | **DFC método direto:** `DFC_MD = "DFC_MD"` adicionado ao `modelo.py`; `DFC_MD: "DFC_MD"` adicionado a `SUFIXO_DEMONSTRACAO` em `fonte_cvm.py`; filtro de período do ITR atualizado para incluir `DFC_MD`; sem migration — dados entram em `fato_contabil` com `demonstracao = 'DFC_MD'`. **Aceite:** Banco do Brasil (que reporta DFC direta) passa a ter linhas `DFC_MD` em `fato_contabil`; empresas sem o arquivo no ZIP não geram erro | REQ-14 | IMPLEMENTADO (2026-10-07) |
+| TASK-E16 | **Dados de opções do COTAHIST:** após decisão DEC-E09, ler registros BDI 12 e 14 do `leitor_cotahist.py`; extrair `simbolo`, `data_pregao`, `data_vencimento` (posições 203–210), `preco_exercicio` (posições 189–201), `codigo_isin` (posições 231–242). Se tabela dedicada: migration `opcao_b3_diaria (simbolo, data_pregao, data_vencimento, preco_exercicio, isin, volume_financeiro)` + novo repositório; comando `--cotahist` passa a carregar as duas entidades. **Aceite:** PETRD... tem registros com vencimento e preço de exercício não nulos; reprocessar o mesmo arquivo não duplica | REQ-15, DEC-E09, migration nova | PLANEJADO |
+| TASK-E17 | **Contas de FCO bruto (DFC_MD):** `RegraConta(fco_bruto, DFC_MD, rotulos=("recebimentos de clientes e de outros", "recebimentos de clientes"))` adicionada a `catalogo.py` (seção `_EXCLUSIVO_DFC_MD`); `DFC_MD` importado no catálogo. O resolvedor tentará extrair para empresas com DFC direta; resultado fica em `cobertura_json` desde já. **Pendente (EM ANDAMENTO):** migration `ALTER TABLE indicador_fundamentalista ADD COLUMN fco_bruto DECIMAL(24,2) NULL`; adicionar campo a `Indicadores` e `IndicadorFundamentalistaEntity`; propagar em `MontadorDeIndicadores.montar()`. `DFC_MD` já entra em `DEMONSTRACOES_DE_FLUXO` do TTM (sem isso o TTM sairia acumulado no ano). **Aceite:** empresa com DFC direta tem `fco_bruto` em `indicador_fundamentalista`; empresa sem DFC direta mantém `fluxo_caixa_operacional` via DFC_MI | REQ-14, TASK-E15 | EM ANDAMENTO (catálogo 2026-10-07; mart pendente) |
 
 ---
 

@@ -18,6 +18,7 @@ from app.adaptadores.cvm.normalizador import NormalizadorDeLinhas
 from app.dominio.modelo import (
     BPA,
     BPP,
+    DFC_MD,
     DFC_MI,
     DMPL,
     DRE,
@@ -37,7 +38,8 @@ from app.excecoes.excecoes import FonteIndisponivel
 # Nome interno da demonstracao -> sufixo do arquivo da CVM
 # DVA e DMPL: plano LAC (L1, infra V16) - proventos por periodo e dado bruto.
 SUFIXO_DEMONSTRACAO = {
-    BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DVA: "DVA", DMPL: "DMPL",
+    BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DFC_MD: "DFC_MD",
+    DVA: "DVA", DMPL: "DMPL",
 }
 
 PACOTE_DFP = "DFP"
@@ -303,7 +305,7 @@ class FonteCvm:
                     # misturar os dois produz contas duplicadas e um resultado
                     # silenciosamente errado.
                     if (
-                        demonstracao in (DRE, DFC_MI, DVA, DMPL)
+                        demonstracao in (DRE, DFC_MI, DFC_MD, DVA, DMPL)
                         and convertida.dt_ini_exerc != date(referencia.year, 1, 1)
                     ):
                         continue
@@ -361,6 +363,8 @@ class FonteCvm:
                     dt_refer=bruto["dt_refer"],
                     acoes_ex_tesouraria=total_fre - tesouraria * escala,
                     fonte="FRE",
+                    qt_acao_ordinaria=bruto["qt_acao_ordinaria"] * escala,
+                    qt_acao_preferencial=bruto["qt_acao_preferencial"] * escala,
                     escala_aplicada=escala,
                     divergencia_fre_dfp=round(divergencia, 3),
                 )
@@ -370,6 +374,8 @@ class FonteCvm:
                     dt_refer=bruto["dt_refer"],
                     acoes_ex_tesouraria=total_dfp - tesouraria,
                     fonte="DFP",
+                    qt_acao_ordinaria=bruto["qt_acao_ordinaria"],
+                    qt_acao_preferencial=bruto["qt_acao_preferencial"],
                 )
 
         # Os DFP ate 2019 nao trazem o arquivo de composicao do capital (a CVM
@@ -406,6 +412,8 @@ class FonteCvm:
                     "dt_refer": _data_ou_hoje(linha.get("DT_REFER")),
                     "total": _inteiro(linha.get("QT_ACAO_TOTAL_CAP_INTEGR")),
                     "tesouraria": _inteiro(linha.get("QT_ACAO_TOTAL_TESOURO")),
+                    "qt_acao_ordinaria": _inteiro(linha.get("QT_ACAO_ORDINARIA")),
+                    "qt_acao_preferencial": _inteiro(linha.get("QT_ACAO_PREFERENCIAL")),
                 }
         return saida
 

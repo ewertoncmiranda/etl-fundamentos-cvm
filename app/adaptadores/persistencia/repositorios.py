@@ -297,6 +297,8 @@ class RepositorioFatoContabilSql:
             "dt_refer": capital.dt_refer,
             "tipo_doc": tipo_doc,
             "versao": 1,
+            "qt_acao_ordinaria": capital.qt_acao_ordinaria,
+            "qt_acao_preferencial": capital.qt_acao_preferencial,
             "qt_acao_ex_tesouraria": capital.acoes_ex_tesouraria,
             "qt_acao_total": capital.acoes_ex_tesouraria,
         }
@@ -304,7 +306,10 @@ class RepositorioFatoContabilSql:
             db,
             ComposicaoCapitalEntity,
             [registro],
-            ("qt_acao_ex_tesouraria", "qt_acao_total", "versao"),
+            (
+                "qt_acao_ordinaria", "qt_acao_preferencial",
+                "qt_acao_ex_tesouraria", "qt_acao_total", "versao",
+            ),
         )
 
 
