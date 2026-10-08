@@ -12,6 +12,10 @@ from decimal import Decimal, DivisionByZero, InvalidOperation
 # nao e estavel entre planos de conta. Documentado como limitacao: o ROIC e o
 # indicador mais fraco do conjunto justamente por isso.
 ALIQUOTA_NOMINAL = Decimal("0.34")
+CONVENCAO_ROIC = (
+    "NOPAT nominal / capital investido do controlador; "
+    "capital investido = PL controlador + divida bruta - caixa"
+)
 
 CEM = Decimal(100)
 
@@ -31,7 +35,13 @@ def _percentual(numerador: Decimal | None, denominador: Decimal | None) -> Decim
 
 
 class CalculadoraIndicadores:
-    """Sem estado e sem I/O: entra dict de insumos, sai dict de derivados."""
+    """Sem estado e sem I/O: entra dict de insumos, sai dict de derivados.
+
+    ROIC segue a convencao interna `CONVENCAO_ROIC`: NOPAT calculado com
+    aliquota nominal sobre EBIT e capital investido pela visao do controlador.
+    Bancos e seguradoras nao recebem ROIC porque EBIT/divida operacional nao
+    sao comparaveis nesses planos.
+    """
 
     def __init__(self, aliquota: Decimal = ALIQUOTA_NOMINAL):
         self._aliquota = aliquota
@@ -81,8 +91,22 @@ class CalculadoraIndicadores:
         divida: Decimal | None,
         caixa: Decimal | None,
     ) -> Decimal | None:
-        if ebit is None or pl_controlador is None or divida is None or caixa is None:
+        capital_investido = capital_investido_controlador(
+            pl_controlador, divida, caixa
+        )
+        if ebit is None or capital_investido is None:
             return None
-        capital_investido = Decimal(pl_controlador) + Decimal(divida) - Decimal(caixa)
         nopat = Decimal(ebit) * (Decimal(1) - self._aliquota)
         return _percentual(nopat, capital_investido)
+
+
+def capital_investido_controlador(
+    pl_controlador: Decimal | None,
+    divida_bruta: Decimal | None,
+    caixa_equivalentes: Decimal | None,
+) -> Decimal | None:
+    """Base do ROIC definida pela SPEC: PL controlador + divida - caixa."""
+
+    if pl_controlador is None or divida_bruta is None or caixa_equivalentes is None:
+        return None
+    return Decimal(pl_controlador) + Decimal(divida_bruta) - Decimal(caixa_equivalentes)

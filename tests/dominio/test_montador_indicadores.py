@@ -10,7 +10,11 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
+from app.dominio.calculo.calculadora_indicadores import (
+    CONVENCAO_ROIC,
+    CalculadoraIndicadores,
+    capital_investido_controlador,
+)
 from app.dominio.modelo import (
     DRE,
     GRUPO_CONSOLIDADO,
@@ -272,3 +276,32 @@ class TestCalculadoraIndicadores:
         )
 
         assert derivados["fluxo_caixa_livre"] == Decimal("600")
+
+    def test_roic_segue_convencao_nominal_sobre_capital_do_controlador(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("1000"),
+                "patrimonio_liquido": Decimal("5000"),
+                "participacao_nao_controladores": Decimal("500"),
+                "divida_bruta": Decimal("2000"),
+                "caixa_equivalentes": Decimal("1000"),
+            }
+        )
+
+        assert CONVENCAO_ROIC.startswith("NOPAT nominal")
+        assert capital_investido_controlador(
+            Decimal("4500"), Decimal("2000"), Decimal("1000")
+        ) == Decimal("5500")
+        assert derivados["roic"] == Decimal("12.00")
+
+    def test_roic_sem_capital_investido_positivo_nao_e_calculado(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("1000"),
+                "patrimonio_liquido": Decimal("1000"),
+                "divida_bruta": Decimal("0"),
+                "caixa_equivalentes": Decimal("1000"),
+            }
+        )
+
+        assert derivados["roic"] is None

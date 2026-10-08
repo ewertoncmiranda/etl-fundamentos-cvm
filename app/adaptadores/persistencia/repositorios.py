@@ -398,6 +398,34 @@ class RepositorioIndicadorSql:
         ]
         return _upsert(db, IndicadorFundamentalistaEntity, registros, self.COLUNAS_ATUALIZAVEIS)
 
+    def historico(
+        self,
+        db: Any,
+        simbolo: str,
+        tipo_periodo: str | None = None,
+        limite: int | None = None,
+    ) -> list[Indicadores]:
+        """Le a serie do mart em ordem cronologica para API, painel e backtests."""
+
+        consulta = (
+            select(IndicadorFundamentalistaEntity)
+            .where(IndicadorFundamentalistaEntity.simbolo == simbolo.strip().upper())
+            .order_by(
+                IndicadorFundamentalistaEntity.periodo.asc(),
+                IndicadorFundamentalistaEntity.tipo_periodo.asc(),
+            )
+        )
+        if tipo_periodo:
+            consulta = consulta.where(
+                IndicadorFundamentalistaEntity.tipo_periodo == tipo_periodo
+            )
+        if limite:
+            consulta = consulta.limit(limite)
+
+        resultado = db.execute(consulta)
+        entidades = resultado.scalars().all()
+        return [_indicador_da_entidade(entidade) for entidade in entidades]
+
     def conferir_acoes(self, db: Any, simbolos: Sequence[str]) -> list[str]:
         """Aplica dominio/validacao_acoes.py sobre a serie gravada de cada
         simbolo e devolve o que corrigiu ou anulou, para o log da carga."""
@@ -449,6 +477,45 @@ class RepositorioIndicadorSql:
                     )
                 relatorio.append(f"{simbolo} {c.periodo} {c.tipo_periodo}: {c.motivo}")
         return relatorio
+
+
+def _indicador_da_entidade(entidade: IndicadorFundamentalistaEntity) -> Indicadores:
+    return Indicadores(
+        simbolo=entidade.simbolo,
+        cnpj=entidade.cnpj,
+        periodo=entidade.periodo,
+        tipo_periodo=entidade.tipo_periodo,
+        tipo_doc=entidade.tipo_doc,
+        grupo=entidade.grupo,
+        versao_cvm=entidade.versao_cvm,
+        plano_contas=entidade.plano_contas,
+        lucro_liquido=entidade.lucro_liquido,
+        patrimonio_liquido=entidade.patrimonio_liquido,
+        ativo_total=entidade.ativo_total,
+        ativo_circulante=entidade.ativo_circulante,
+        passivo_circulante=entidade.passivo_circulante,
+        lucro_bruto=entidade.lucro_bruto,
+        lucro_liquido_controlador=entidade.lucro_liquido_controlador,
+        participacao_nao_controladores=entidade.participacao_nao_controladores,
+        receita_liquida=entidade.receita_liquida,
+        ebit=entidade.ebit,
+        divida_bruta=entidade.divida_bruta,
+        caixa_equivalentes=entidade.caixa_equivalentes,
+        fluxo_caixa_operacional=entidade.fluxo_caixa_operacional,
+        fco_bruto=entidade.fco_bruto,
+        capex=entidade.capex,
+        acoes_ex_tesouraria=entidade.acoes_ex_tesouraria,
+        lpa=entidade.lpa,
+        vpa=entidade.vpa,
+        roe=entidade.roe,
+        roic=entidade.roic,
+        margem_liquida=entidade.margem_liquida,
+        divida_liquida=entidade.divida_liquida,
+        fluxo_caixa_livre=entidade.fluxo_caixa_livre,
+        data_entrega=entidade.data_entrega,
+        fonte=entidade.fonte,
+        cobertura=entidade.cobertura_json or {},
+    )
 
 
 class RepositorioSeriesSql:

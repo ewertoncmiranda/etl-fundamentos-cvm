@@ -74,6 +74,16 @@ class RepositorioIndicador(Protocol):
     def salvar(self, db: Any, indicadores: Sequence[Indicadores]) -> int:
         ...
 
+    def historico(
+        self,
+        db: Any,
+        simbolo: str,
+        tipo_periodo: str | None = None,
+        limite: int | None = None,
+    ) -> list[Indicadores]:
+        """Serie historica de indicadores, ordenada do periodo mais antigo ao mais novo."""
+        ...
+
     def conferir_acoes(self, db: Any, simbolos: Sequence[str]) -> list[str]:
         """Corrige unidade/pico da quantidade de acoes na serie gravada."""
         ...
