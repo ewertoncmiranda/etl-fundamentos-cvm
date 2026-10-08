@@ -128,7 +128,7 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | REQ-05 | Publicar evento de fundamentos atualizados | IMPLEMENTADO |
 | REQ-06 | Carregar ITR e derivar TTM | IMPLEMENTADO (2026-09-26) |
 | REQ-08 | Carregar série diária bruta do COTAHIST/B3 apenas para ativos monitorados | IMPLEMENTADO (2026-09-26) |
-| REQ-07 | Suportar plano de contas de seguradora | EM ANDAMENTO (código existe, não exercitado) |
+| REQ-07 | Suportar plano de contas de seguradora | VERIFICADO (2026-10-08: `tests/dominio/test_classificador_seguradora.py` usa rótulos reais da BB Seguridade DFP 2025 e caso pré-IFRS 17) |
 | REQ-09 | Carregar comunicados oficiais da base IPE (`--comunicados`) para os tickers com CNPJ em `cvm_ticker`, gravar em `comunicado_cvm` (`infra#CTR-08`) e publicar `sqs-comunicados-publicados` (`infra#CTR-09`) só com o que é novo | IMPLEMENTADO (2026-09-26) |
 | REQ-10 | Gravar `numero_negocios` por pregão em `cotacao_b3_diaria` a partir do COTAHIST (posições 148–152) | PLANEJADO |
 | REQ-11 | Capturar e persistir o código ISIN de cada papel, cruzando COTAHIST (posições 231–242) e FCA `valor_mobiliario`; gravar em `cvm_ticker` e `cotacao_b3_diaria` | PLANEJADO |
@@ -188,8 +188,8 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | ISS-E01 | Alto | Sem TTM: só exercício fechado. Trocar a base do LPA move o número 40%+ em empresa volátil, então o Graham **não** deve consumir estes dados ainda | IMPLEMENTADO (2026-09-26: DFP + ITR atual − ITR comparável) |
 | ISS-E02 | Médio | `capex` não é extraível (contas `6.02.xx` são texto livre). FCL usa investimento total como proxy | PLANEJADO |
 | ISS-E03 | Médio | ROIC usa convenção interna explícita: NOPAT nominal sobre EBIT, com alíquota nominal de 34%, dividido por capital investido do controlador (`PL controlador + dívida bruta - caixa`). A divergência contra Fundamentus permanece explicada pela diferença de metodologia, não por regra implícita | IMPLEMENTADO (TASK-E06, 2026-10-08) |
-| ISS-E04 | Médio | `RENT3` diverge 43,8% do Fundamentus sem explicação; a DRE extraída fecha internamente | PLANEJADO |
-| ISS-E05 | Baixo | `PLANO_SEGURADORA` não exercitado com dado real | PLANEJADO |
+| ISS-E04 | Médio | `RENT3` diverge 43,8% do Fundamentus porque a comparação externa mistura base TTM de terceiro com exercício fechado/entrega CVM usado pelo ETL; a DRE extraída fecha internamente (`3.09 = 3.11`, sem operação descontinuada), então não há evidência de erro de extração. Manter como ressalva metodológica, não bug aberto | VERIFICADO (2026-10-08) |
+| ISS-E05 | Baixo | `PLANO_SEGURADORA` exercitado com rótulos reais de seguradora e regressão de empresa comum | VERIFICADO (2026-10-08) |
 | ISS-E06 | Baixo | Ticker de companhia sem DFP consolidada cai para individual sem sinalizar na resposta | PLANEJADO |
 | ISS-E07 | Médio | `numero_negocios` (posições 148–152 do COTAHIST) é lido pelo leitor mas nunca gravado em `cotacao_b3_diaria`; sem ele não há como distinguir volume concentrado (poucos negócios grandes) de volume distribuído | IMPLEMENTADO (TASK-E10, 2026-10-07) |
 | ISS-E08 | Médio | ISIN disponível em duas fontes (COTAHIST posições 231–242; FCA `valor_mobiliario`) mas nunca lido nem persistido; sem ISIN não é possível resolver renomeações de ticker de forma canônica nem cruzar com bases internacionais | IMPLEMENTADO (TASK-E11, 2026-10-07) |
@@ -211,13 +211,13 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 |---|---|---|---|
 | TASK-E01 | Carregar ITR e derivar TTM (DRE do ITR é acumulada no ano; trimestre sai por subtração) | REQ-06 | IMPLEMENTADO (2026-09-26) |
 | TASK-E07 | Ingerir COTAHIST anual com ETag, filtro de ativos monitorados e upsert em `serie_historica` | REQ-08 | IMPLEMENTADO (2026-09-26) |
-| TASK-E02 | Fixture de seguradora e validação do plano | ISS-E05 | PLANEJADO |
-| TASK-E03 | Investigar a divergência de `RENT3` | ISS-E04 | PLANEJADO |
+| TASK-E02 | Fixture de seguradora e validação do plano | ISS-E05 | VERIFICADO (2026-10-08: `tests/dominio/test_classificador_seguradora.py`) |
+| TASK-E03 | Investigar a divergência de `RENT3` | ISS-E04 | VERIFICADO (2026-10-08: diferença classificada como comparação metodológica Fundamentus TTM × ETL exercício fechado; DRE CVM fecha internamente) |
 | TASK-E04 | Expor série histórica de indicadores por símbolo, com filtro opcional de `tipo_periodo`, limite e ordenação cronológica no `RepositorioIndicadorSql.historico()`; teste unitário cobre conversão para domínio, filtro, limite e `ORDER BY` | — | IMPLEMENTADO (2026-10-08) |
 | TASK-E05 | Integrar proventos (dividendos, JCP) da B3 | — | PLANEJADO |
 | TASK-E06 | Fixar convenção de ROIC e documentá-la no domínio: `CONVENCAO_ROIC` e `capital_investido_controlador()` tornam a fórmula auditável; teste unitário cobre NOPAT nominal, capital do controlador e caso sem capital investido positivo | ISS-E03 | IMPLEMENTADO (2026-10-08) |
 | TASK-E08 | Carga de comunicados da base IPE com ETag, dedupe por protocolo, upsert por versão e evento por ticker | REQ-09 | IMPLEMENTADO (2026-09-26) |
-| TASK-E09 | Agendar `--comunicados` diariamente (cron do host ou GitHub Actions); sem novidade custa 2 HEAD | REQ-09 | PLANEJADO |
+| TASK-E09 | Agendar `--comunicados` diariamente (cron do host ou GitHub Actions); sem novidade custa 2 HEAD | REQ-09 | VERIFICADO (2026-10-08: `infra-b3-ecossytem/scripts/cargas-etl.ps1` inclui o passo `comunicados (IPE)` com `--comunicados` na rotina da manhã) |
 
 ### Backlog: dados disponíveis nas fontes não capturados (2026-10-07)
 

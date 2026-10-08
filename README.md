@@ -123,7 +123,7 @@ O CI roda lint, mypy e testes **antes** de publicar imagem — `feature**` abre 
 - **ROIC é o indicador mais fraco.** Usa alíquota nominal de 34%; a efetiva exigiria a linha de tributos, que não é estável entre planos. A definição de capital investido também é convenção — damos 31,3% na WEG contra 24,3% do Fundamentus, e nenhuma das duas é "a" certa.
 - **Só exercício fechado, sem TTM.** O Fundamentus publica 12 meses móveis. Em empresa de lucro volátil isso sozinho move o LPA mais de 40%. Enquanto o TTM a partir do ITR não existir, estes números **não devem** alimentar o Graham do `gerar-insights`.
 - **Seguradoras não foram exercitadas.** `PLANO_SEGURADORA` existe no código mas nenhum ticker testado caiu nele.
-- **`RENT3` diverge 43,8% do Fundamentus** sem explicação encontrada; a DRE extraída fecha internamente (`3.09` = `3.11`, sem operação descontinuada), então a extração é fiel ao arquivo.
+- **`RENT3` diverge 43,8% do Fundamentus** por comparação metodológica: o terceiro publica referência TTM, enquanto o ETL usa exercício fechado/entrega CVM para manter rastreabilidade temporal. A DRE extraída fecha internamente (`3.09` = `3.11`, sem operação descontinuada), então a extração é fiel ao arquivo.
 
 Métrica que o plano de contas da companhia não comporta fica **nula de propósito**, com a razão no `cobertura_json` — ausência explícita é melhor que número errado.
 
