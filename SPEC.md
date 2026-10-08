@@ -355,3 +355,39 @@ Achados da Sessão 01, conferidos no COTAHIST 2026 em 30-09-2026. O `leitor_cota
 - Lista de desdobramentos e grupamentos conhecidos, montada na revisão, detectada com a data certa; nenhum evento gravado com confiança abaixo do limiar.
 - TTM trimestral de 2011 a 2026 para os ativos do universo, sem trimestre repetido e sem misturar grupos.
 - pytest, ruff e mypy verdes; nenhum valor 0 gravado no lugar de conta ausente.
+
+---
+
+## Plano OPR: dados para sistema operável simulado (2026-10-08)
+
+**Status:** PLANEJADO · **Contexto:** `infra-b3-ecossytem/SPEC.md`, Plano OPR. Este repositório não decide compra, venda, tamanho de posição ou uso de capital. Ele entrega os dados auditáveis para que `gerar-insights` rode o diário operacional sem olhar o futuro.
+
+**Meta do ETL.** Para cada ativo e pregão elegível, disponibilizar liquidez, integridade da série, preço utilizável, custos aproximáveis por spread, eventos/proventos e fundamentos point-in-time suficientes para simular entrada e saída com viés de futuro controlado.
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPR-ETL-1 | Popular `ativo_liquidez_diaria` com volume financeiro médio 21/63 pregões, número médio de negócios, quantidade média negociada, volatilidade realizada, amplitude média e dias com preço ausente | infra#OPR-INFRA-1; REQ-10; LAC-ETL-7 | Para PETR4/WEGE3/ativo ilíquido, a tabela distingue liquidez alta, média e insuficiente; recarga do mesmo pregão é idempotente | PLANEJADO |
+| OPR-ETL-2 | Calcular spread e custo aproximável a partir de `melhor_oferta_compra`, `melhor_oferta_venda`, `preco_medio` e fallback conservador quando o dado não existir | LAC-ETL-7 | `spread_mediano_63d` não é gravado como zero quando ausente; custo estimado fica maior para ativo pouco líquido | PLANEJADO |
+| OPR-ETL-3 | Marcar a série de preços como `BRUTA`, `AJUSTADA_EVENTO` ou `AJUSTE_INDISPONIVEL`, ligando eventos corporativos/proventos usados no ajuste | LAC-ETL-1, LAC-ETL-2, LAC-ETL-7 | Janela com salto sem evento fica bloqueada para operação simulada ou marcada com ressalva explícita | PLANEJADO |
+| OPR-ETL-4 | Garantir fundamentos point-in-time: todo indicador usado pelo operacional deve ter `data_entrega` e nunca entrar antes de estar disponível ao mercado | LAC-ETL-3; REQ-06 | Consulta de uma data histórica retorna apenas o indicador com `data_entrega <= data_referencia` | PLANEJADO |
+| OPR-ETL-5 | Publicar evento ou registro de prontidão diária quando COTAHIST, fundamentos, proventos/eventos e liquidez do pregão estiverem consistentes | infra#OPR-INFRA-2 | rotina operacional não roda se a carga do dia estiver incompleta ou com erro crítico | PLANEJADO |
+
+### Campos mínimos esperados pelo operacional
+
+| Campo | Origem |
+|---|---|
+| `volume_financeiro_medio_63d` | COTAHIST |
+| `numero_negocios_medio_63d` | COTAHIST posições 148–152 |
+| `volatilidade_63d` | COTAHIST |
+| `spread_mediano_63d` | PREOFC/PREOFV, quando disponível |
+| `preco_medio` | PREMED/VWAP |
+| `status_ajuste_preco` | eventos corporativos/proventos |
+| `data_entrega_fundamento` | índice CVM/DFP/ITR |
+
+### Aceite local
+
+- `pytest` cobre liquidez, spread ausente, ativo ilíquido e bloqueio por fundamento futuro.
+- Nenhum campo operacional ausente é gravado como zero por conveniência; ausências usam `NULL` e motivo estruturado.
+- `gerar-insights` consegue consumir um pregão completo sem precisar recalcular liquidez a partir dos arquivos brutos.
