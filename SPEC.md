@@ -374,6 +374,23 @@ Achados da Sessão 01, conferidos no COTAHIST 2026 em 30-09-2026. O `leitor_cota
 | OPR-ETL-4 | Garantir fundamentos point-in-time: todo indicador usado pelo operacional deve ter `data_entrega` e nunca entrar antes de estar disponível ao mercado | LAC-ETL-3; REQ-06 | Consulta de uma data histórica retorna apenas o indicador com `data_entrega <= data_referencia` | PLANEJADO |
 | OPR-ETL-5 | Publicar evento ou registro de prontidão diária quando COTAHIST, fundamentos, proventos/eventos e liquidez do pregão estiverem consistentes | infra#OPR-INFRA-2 | rotina operacional não roda se a carga do dia estiver incompleta ou com erro crítico | PLANEJADO |
 
+### Métricas fixadas para `ativo_liquidez_diaria` (DEC-OPR-1, 2026-10-10)
+
+O ETL entrega as métricas brutas; **quem classifica a faixa (`ALTA`/`MEDIA`/`INSUFICIENTE`) e decide é o `gerar-insights`** (SPEC dele, "Parâmetros fixados"). Todas calculadas só com pregões **até** `data_pregao` (inclusive), a partir de `cotacao_b3_diaria` (COTAHIST). Ausente é `NULL` com motivo, nunca 0.
+
+| Coluna | Cálculo |
+|---|---|
+| `volume_financeiro_medio_21d`, `volume_financeiro_medio_63d` | média de `volume_financeiro` nos últimos 21/63 pregões do mercado (dia sem negócio no ativo conta como 0 no numerador) |
+| `negocios_medio_63d` | média de `numero_negocios` nos últimos 63 pregões do mercado |
+| `presenca_63d` | fração dos últimos 63 pregões do mercado em que o ativo negociou |
+| `spread_mediano_63d` | mediana de `(melhor_oferta_venda − melhor_oferta_compra) ÷ preco_medio` nos dias com as duas ofertas; `NULL` se menos de 20 dias válidos |
+| `atr14` | média de 14 pregões do *true range* (`max(máx − mín, |máx − fech_ant|, |mín − fech_ant|)`), em R$, preços brutos |
+| `volatilidade_63d` | desvio-padrão dos retornos log diários de 63 pregões, anualizado (√252) |
+| `percentil_volatilidade` | percentil de `volatilidade_63d` no universo do mesmo pregão |
+| `dias_sem_preco_63d` | pregões do mercado sem cotação do ativo |
+| `ajuste_serie` | `BRUTA` / `AJUSTADA_EVENTO` / `AJUSTE_INDISPONIVEL` (OPR-ETL-3) |
+
+Aceite adicional do OPR-ETL-1: para PETR4 e WEGE3 em 2026-10-07 as colunas batem com cálculo independente sobre `cotacao_b3_diaria` (tolerância 0,1%); ativo com 10 pregões de histórico tem as médias de 63d `NULL`, não parciais.
 ### Campos mínimos esperados pelo operacional
 
 | Campo | Origem |
