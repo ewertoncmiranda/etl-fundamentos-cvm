@@ -12,6 +12,8 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
     python main.py --proventos --ano 2024 --universo-backtest  # DVA (infra V16)
     python main.py --eventos-corporativos   # desdobramentos etc. (todos os anos)
+    python main.py --liquidez           # liquidez dos pregoes novos (infra V23, plano OPR)
+    python main.py --liquidez --desde 2025-01-01   # historico
 
 O --rotina e o comando padrao do servico no docker compose: e o que roda
 ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
@@ -33,6 +35,7 @@ from app.config.composicao import (
     montar_caso_de_uso,
     montar_conciliacao,
     montar_eventos_corporativos,
+    montar_liquidez,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -107,9 +110,20 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         "em etl_execucao; sai com 3 quando ha divergencia grave",
     )
     parser.add_argument(
+        "--liquidez",
+        action="store_true",
+        help="liquidez e microestrutura por ativo e pregao (ativo_liquidez_diaria, infra V23, "
+        "plano OPR) a partir do COTAHIST ja carregado; sem --data/--desde, os pregoes novos",
+    )
+    parser.add_argument(
+        "--desde",
+        type=date.fromisoformat,
+        help="com --liquidez: recalcula do pregao AAAA-MM-DD em diante (historico)",
+    )
+    parser.add_argument(
         "--data",
         type=date.fromisoformat,
-        help="com --conciliar: pregao especifico (AAAA-MM-DD), mesmo ja conciliado",
+        help="com --conciliar ou --liquidez: pregao especifico (AAAA-MM-DD), mesmo ja processado",
     )
     parser.add_argument(
         "--forcar",
@@ -146,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if argumentos.eventos_corporativos:
         return _inferir_eventos(argumentos, settings, logger)
+
+    if argumentos.liquidez:
+        return _calcular_liquidez(argumentos, settings, logger)
 
     anos = argumentos.anos or settings.anos
     if not anos:
@@ -230,6 +247,8 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
                 [ano], simbolos, forcar, universo_backtest=not simbolos))),
         ("preco oficial (COTAHIST)", lambda: _sem_erro(
             montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))),
+        # Plano OPR: liquidez dos pregoes novos, logo depois do COTAHIST do dia.
+        ("liquidez (OPR)", lambda: _sem_erro(montar_liquidez(settings, logger).executar())),
         # Plano LAC (L1): proventos da DVA do ano anterior e do corrente, pelo
         # cache (sem download novo); upsert, entao repetir e inofensivo.
         ("proventos (DVA)", lambda: _sem_erro(
@@ -283,6 +302,22 @@ def _inferir_eventos(argumentos: argparse.Namespace, settings: Settings, logger)
 
 
 CODIGO_ALERTA_CONCILIACAO = 3
+
+
+def _calcular_liquidez(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    try:
+        resultado = montar_liquidez(settings, logger).executar(
+            desde=argumentos.desde, data=argumentos.data, simbolos=argumentos.simbolos)
+    except Exception as erro:
+        logger.critical("Liquidez abortada: %s", erro, exc_info=True)
+        return 1
+    if resultado.pregoes:
+        logger.info(
+            "Liquidez concluida | pregoes=%d (%s..%s) | linhas=%d | com media 63d=%d",
+            len(resultado.pregoes), resultado.pregoes[0], resultado.pregoes[-1],
+            resultado.gravados, resultado.com_63d,
+        )
+    return 0
 
 
 def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:

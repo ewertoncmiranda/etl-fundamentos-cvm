@@ -37,6 +37,7 @@ from app.adaptadores.persistencia.verificador_schema import (
     COLUNAS_V16_FUNDAMENTOS,
     VerificadorDeSchema,
 )
+from app.aplicacao.calcular_liquidez import CalcularLiquidez
 from app.aplicacao.carregar_comunicados import CarregarComunicados
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
 from app.aplicacao.carregar_proventos import CarregarProventosContabeis
@@ -163,6 +164,20 @@ def montar_eventos_corporativos(
     return InferirEventosCorporativos(
         unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
         repositorio=RepositorioEventoCorporativoSql(),
+        repositorio_execucao=RepositorioExecucaoSql(logger),
+        logger=logger,
+    )
+
+
+def montar_liquidez(settings: Settings, logger: Logger) -> CalcularLiquidez:
+    from app.adaptadores.persistencia.repositorio_liquidez import (
+        RepositorioLiquidezSql,  # noqa: PLC0415
+    )
+
+    banco = _montar_banco(settings, logger)
+    return CalcularLiquidez(
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio=RepositorioLiquidezSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
     )
