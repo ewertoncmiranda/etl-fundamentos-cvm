@@ -1,4 +1,4 @@
-"""ativo_liquidez_diaria (infra V23, Plano OPR): leitura do COTAHIST ja carregado e gravacao das
+"""ativo_liquidez_diaria (infra V23 + V24, Plano OPR): leitura do COTAHIST ja carregado e gravacao das
 metricas. Nenhum download: tudo vem de `cotacao_b3_diaria`.
 """
 
@@ -16,7 +16,7 @@ from app.dominio.liquidez import MetricaLiquidez, PregaoAtivo
 
 COLUNAS = (
     "volume_financeiro_medio_21d", "volume_financeiro_medio_63d", "negocios_medio_63d",
-    "presenca_63d", "spread_mediano_63d", "atr14", "volatilidade_63d", "percentil_volatilidade",
+    "presenca_63d", "spread_mediano_63d", "spread_estimado_63d", "atr14", "volatilidade_63d", "percentil_volatilidade",
     "dias_sem_preco_63d", "ajuste_serie", "versao_calculo",
 )
 

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-VERSAO_CALCULO = "LIQ-2026.10.10-1"
+VERSAO_CALCULO = "LIQ-2026.10.10-2"  # -2: spread_estimado_63d (OPR-ETL-2)
 JANELA_CURTA, JANELA_LONGA, JANELA_ATR = 21, 63, 14
 MINIMO_DIAS_SPREAD = 20
 MINIMO_RETORNOS_VOL = 42  # 2/3 da janela: menos que isso, a volatilidade nao diz nada
@@ -52,6 +52,7 @@ class MetricaLiquidez:
     negocios_medio_63d: Decimal | None = None
     presenca_63d: Decimal | None = None
     spread_mediano_63d: Decimal | None = None
+    spread_estimado_63d: Decimal | None = None
     atr14: Decimal | None = None
     volatilidade_63d: Decimal | None = None
     percentil_volatilidade: Decimal | None = None
@@ -115,10 +116,11 @@ def calcular(
         m.dias_sem_preco_63d = sum(
             1 for d in janela63 if d not in por_dia or por_dia[d].fechamento is None)
         _spread(m, [por_dia[d] for d in presentes])
+        _spread_estimado(m, [por_dia[d] for d in presentes])
         _volatilidade(m, [por_dia[d] for d in presentes])
     else:
         for coluna in ("volume_financeiro_medio_63d", "negocios_medio_63d", "presenca_63d",
-                       "dias_sem_preco_63d", "spread_mediano_63d", "volatilidade_63d"):
+                       "dias_sem_preco_63d", "spread_mediano_63d", "spread_estimado_63d", "volatilidade_63d"):
             _ausente(m, coluna, HISTORICO_INSUFICIENTE)
 
     _atr(m, serie)
@@ -140,6 +142,42 @@ def _spread(m: MetricaLiquidez, pregoes: list[PregaoAtivo]) -> None:
         )
         return
     m.spread_mediano_63d = _d(statistics.median(valores), 8)
+
+
+_K = 3 - 2 * math.sqrt(2)
+
+
+def spread_corwin_schultz(ant: PregaoAtivo, atual: PregaoAtivo) -> float | None:
+    """Spread de dois pregoes consecutivos por maxima/minima (Corwin & Schultz, 2012), em fracao.
+
+    A amplitude de dois dias tem o dobro da variancia de um, mas o mesmo spread: a diferenca separa
+    os dois. Gap noturno: se o fechamento anterior fica fora da faixa do dia, a faixa e deslocada ate
+    ele (secao 2.2 do artigo). Estimativa negativa vira 0. None sem maxima/minima/fechamento validos.
+    """
+    if not (ant.maxima and ant.minima and ant.fechamento and atual.maxima and atual.minima):
+        return None
+    h0, l0, h1, l1 = (float(v) for v in (ant.maxima, ant.minima, atual.maxima, atual.minima))
+    c0 = float(ant.fechamento)
+    if min(h0, l0, h1, l1, c0) <= 0 or h0 < l0 or h1 < l1:
+        return None
+    if l1 > c0:  # abriu acima do fechamento anterior: desloca a faixa para baixo
+        h1, l1 = h1 - (l1 - c0), c0
+    elif h1 < c0:  # abriu abaixo: desloca para cima
+        h1, l1 = c0, l1 + (c0 - h1)
+    beta = math.log(h0 / l0) ** 2 + math.log(h1 / l1) ** 2
+    gamma = math.log(max(h0, h1) / min(l0, l1)) ** 2
+    alfa = (math.sqrt(2 * beta) - math.sqrt(beta)) / _K - math.sqrt(gamma / _K)
+    return max(0.0, 2 * (math.exp(alfa) - 1) / (1 + math.exp(alfa)))
+
+
+def _spread_estimado(m: MetricaLiquidez, pregoes: list[PregaoAtivo]) -> None:
+    """Media das estimativas de Corwin-Schultz dos pares consecutivos de pregoes do ativo na janela."""
+    valores = [v for v in (spread_corwin_schultz(a, b) for a, b in zip(pregoes, pregoes[1:], strict=False))
+               if v is not None]
+    if len(valores) < MINIMO_DIAS_SPREAD:
+        _ausente(m, "spread_estimado_63d", f"pares_alta_baixa_{len(valores)}_minimo_{MINIMO_DIAS_SPREAD}")
+        return
+    m.spread_estimado_63d = _d(statistics.fmean(valores), 8)
 
 
 def _volatilidade(m: MetricaLiquidez, pregoes: list[PregaoAtivo]) -> None:
