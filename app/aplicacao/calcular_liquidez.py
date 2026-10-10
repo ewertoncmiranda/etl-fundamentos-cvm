@@ -2,7 +2,8 @@
 
 Le so o COTAHIST ja carregado e grava `ativo_liquidez_diaria` (infra V23). Idempotente: upsert
 por (simbolo, data_pregao). Sem datas explicitas, calcula os pregoes do mercado posteriores ao
-ultimo ja calculado (na primeira vez, so o ultimo pregao; o historico e via --desde).
+ultimo ja calculado (na primeira vez, os ultimos HISTORICO_INICIAL pregoes). Roda dentro da carga
+do COTAHIST (start unico, AGENTS.md); desde/data ficam para uso interno.
 O processamento e por mes, para o backfill nao trazer o COTAHIST inteiro para a memoria.
 """
 
@@ -26,6 +27,8 @@ from app.portas.repositorios import RepositorioExecucao
 FONTE_LIQUIDEZ = "LIQUIDEZ"
 # Folga antes da janela: 63 pregoes de media + o ATR do ativo que nao negocia todo dia.
 PREGOES_DE_FOLGA = JANELA_LONGA + 3 * JANELA_ATR
+# Tabela vazia: calcula ~6 meses de pregoes, para o diario operacional ja ter janela de 63d.
+HISTORICO_INICIAL = 126
 
 
 @dataclass
@@ -51,8 +54,8 @@ class CalcularLiquidez:
         if desde:
             return mercado[bisect_left(mercado, desde):fim]
         ultima = self._repositorio.ultima_data_calculada(db)
-        if ultima is None:
-            return mercado[fim - 1:fim]
+        if ultima is None:  # primeira carga: historico inicial, sem comando de backfill
+            return mercado[max(0, fim - HISTORICO_INICIAL):fim]
         return mercado[bisect_right(mercado, ultima):fim]
 
     def executar(self, desde: date | None = None, ate: date | None = None, data: date | None = None,

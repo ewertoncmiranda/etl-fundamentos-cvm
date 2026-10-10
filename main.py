@@ -12,8 +12,6 @@ Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
     python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
     python main.py --proventos --ano 2024 --universo-backtest  # DVA (infra V16)
     python main.py --eventos-corporativos   # desdobramentos etc. (todos os anos)
-    python main.py --liquidez           # liquidez dos pregoes novos (infra V23, plano OPR)
-    python main.py --liquidez --desde 2025-01-01   # historico
 
 O --rotina e o comando padrao do servico no docker compose: e o que roda
 ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
@@ -110,20 +108,9 @@ def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         "em etl_execucao; sai com 3 quando ha divergencia grave",
     )
     parser.add_argument(
-        "--liquidez",
-        action="store_true",
-        help="liquidez e microestrutura por ativo e pregao (ativo_liquidez_diaria, infra V23, "
-        "plano OPR) a partir do COTAHIST ja carregado; sem --data/--desde, os pregoes novos",
-    )
-    parser.add_argument(
-        "--desde",
-        type=date.fromisoformat,
-        help="com --liquidez: recalcula do pregao AAAA-MM-DD em diante (historico)",
-    )
-    parser.add_argument(
         "--data",
         type=date.fromisoformat,
-        help="com --conciliar ou --liquidez: pregao especifico (AAAA-MM-DD), mesmo ja processado",
+        help="com --conciliar: pregao especifico (AAAA-MM-DD), mesmo ja conciliado",
     )
     parser.add_argument(
         "--forcar",
@@ -161,9 +148,6 @@ def main(argv: list[str] | None = None) -> int:
     if argumentos.eventos_corporativos:
         return _inferir_eventos(argumentos, settings, logger)
 
-    if argumentos.liquidez:
-        return _calcular_liquidez(argumentos, settings, logger)
-
     anos = argumentos.anos or settings.anos
     if not anos:
         logger.critical("Nenhum ano definido. Use --ano ou a variavel CVM_ANOS.")
@@ -187,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                 resultado_series.anos_pulados,
                 resultado_series.candles_gravados,
             )
-            return 0
+            return _liquidez_depois_do_cotahist(settings, logger)
         if argumentos.ttm:
             resultado_ttm = montar_carga_ttm(settings, logger).executar(
                 anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
@@ -246,9 +230,8 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
             montar_carga_ttm(settings, logger).executar(
                 [ano], simbolos, forcar, universo_backtest=not simbolos))),
         ("preco oficial (COTAHIST)", lambda: _sem_erro(
-            montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))),
-        # Plano OPR: liquidez dos pregoes novos, logo depois do COTAHIST do dia.
-        ("liquidez (OPR)", lambda: _sem_erro(montar_liquidez(settings, logger).executar())),
+            montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))
+            or _liquidez_depois_do_cotahist(settings, logger)),
         # Plano LAC (L1): proventos da DVA do ano anterior e do corrente, pelo
         # cache (sem download novo); upsert, entao repetir e inofensivo.
         ("proventos (DVA)", lambda: _sem_erro(
@@ -304,12 +287,13 @@ def _inferir_eventos(argumentos: argparse.Namespace, settings: Settings, logger)
 CODIGO_ALERTA_CONCILIACAO = 3
 
 
-def _calcular_liquidez(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+def _liquidez_depois_do_cotahist(settings: Settings, logger) -> int:
+    """Plano OPR (OPR-ETL-1): a liquidez faz parte da carga do COTAHIST, sem comando proprio
+    (AGENTS.md, start unico). Calcula os pregoes novos; na primeira vez, o historico inicial."""
     try:
-        resultado = montar_liquidez(settings, logger).executar(
-            desde=argumentos.desde, data=argumentos.data, simbolos=argumentos.simbolos)
+        resultado = montar_liquidez(settings, logger).executar()
     except Exception as erro:
-        logger.critical("Liquidez abortada: %s", erro, exc_info=True)
+        logger.error("Liquidez (OPR) falhou depois do COTAHIST: %s", erro, exc_info=True)
         return 1
     if resultado.pregoes:
         logger.info(
@@ -318,7 +302,6 @@ def _calcular_liquidez(argumentos: argparse.Namespace, settings: Settings, logge
             resultado.gravados, resultado.com_63d,
         )
     return 0
-
 
 def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
     """0 sem alerta (ou antes da V15 existir); 3 com divergencia grave, para o
