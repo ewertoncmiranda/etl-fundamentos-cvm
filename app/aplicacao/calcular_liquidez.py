@@ -17,6 +17,7 @@ from logging import Logger
 from app.dominio.liquidez import (
     JANELA_ATR,
     JANELA_LONGA,
+    VERSAO_CALCULO,
     MetricaLiquidez,
     calcular,
     preencher_percentis,
@@ -56,7 +57,11 @@ class CalcularLiquidez:
         ultima = self._repositorio.ultima_data_calculada(db)
         if ultima is None:  # primeira carga: historico inicial, sem comando de backfill
             return mercado[max(0, fim - HISTORICO_INICIAL):fim]
-        return mercado[bisect_right(mercado, ultima):fim]
+        novos = mercado[bisect_right(mercado, ultima):fim]
+        # Calculo mudou de versao (ex.: ajuste por evento, OPR-ETL-3): refaz o historico recente sozinho.
+        antigos = self._repositorio.datas_com_versao_antiga(
+            db, VERSAO_CALCULO, mercado[max(0, fim - HISTORICO_INICIAL)])
+        return sorted(set(antigos) | set(novos))
 
     def executar(self, desde: date | None = None, ate: date | None = None, data: date | None = None,
                  simbolos: list[str] | None = None) -> ResultadoLiquidez:
@@ -76,6 +81,7 @@ class CalcularLiquidez:
             inicio = mercado[max(0, bisect_left(mercado, datas[0]) - PREGOES_DE_FOLGA)]
             with self._uow.transacao() as db:
                 series = self._repositorio.series(db, inicio, datas[-1], simbolos)
+                eventos = self._repositorio.eventos_corporativos(db, datas[-1])
             datas_por_ativo = {s: [p.data for p in serie] for s, serie in series.items()}
             for d in datas:
                 janela_inicio = mercado[max(0, bisect_left(mercado, d) - PREGOES_DE_FOLGA)]
@@ -83,7 +89,7 @@ class CalcularLiquidez:
                 for simbolo, serie in series.items():
                     dias = datas_por_ativo[simbolo]
                     recorte = serie[bisect_left(dias, janela_inicio):bisect_right(dias, d)]
-                    m = calcular(simbolo, d, mercado, recorte) if recorte else None
+                    m = calcular(simbolo, d, mercado, recorte, eventos.get(simbolo)) if recorte else None
                     if m is not None:
                         metricas.append(m)
                 preencher_percentis(metricas)

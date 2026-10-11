@@ -282,11 +282,15 @@ def data_de_entrega(
     entregas: dict[tuple[str, date, int], date], cnpj: str, referencia: date, versao: int
 ) -> date | None:
     """DT_RECEB da versao usada; sem ela, a entrega mais tardia da mesma
-    referencia - na duvida o dado fica publico depois, nunca antes."""
+    referencia - na duvida o dado fica publico depois, nunca antes.
+
+    Ponto no tempo (OPR-ETL-4): entrega ANTES do fim do periodo e impossivel (dado trocado na CVM);
+    essa data nunca e usada. Sobra a entrega valida mais tardia da referencia ou None (fora do backtest).
+    """
     exata = entregas.get((cnpj, referencia, versao))
-    if exata:
+    if exata and exata >= referencia:
         return exata
-    candidatas = [d for (c, r, _), d in entregas.items() if c == cnpj and r == referencia]
+    candidatas = [d for (c, r, _), d in entregas.items() if c == cnpj and r == referencia and d >= referencia]
     return max(candidatas) if candidatas else None
 
 

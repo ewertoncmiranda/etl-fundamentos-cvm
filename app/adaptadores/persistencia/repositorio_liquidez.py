@@ -8,6 +8,7 @@ import json
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import bindparam, text
@@ -32,6 +33,20 @@ class RepositorioLiquidezSql:
         )
         return [d for (d,) in db.execute(comando, parametros)]
 
+    def eventos_corporativos(self, db: Any, ate: date) -> dict[str, list[tuple[date, Decimal]]]:
+        """(data_efeito, fator_preco) por ativo, com efeito ate `ate` (OPR-ETL-3)."""
+        saida: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
+        for simbolo, efeito, fator in db.execute(text(
+            "SELECT simbolo, data_efeito, fator_preco FROM evento_corporativo "
+            "WHERE data_efeito <= :ate AND fator_preco IS NOT NULL ORDER BY simbolo, data_efeito"), {"ate": ate}):
+            saida[simbolo].append((efeito, Decimal(str(fator))))
+        return dict(saida)
+
+    def datas_com_versao_antiga(self, db: Any, versao: str, desde: date) -> list[date]:
+        """Pregoes ja calculados por outra versao do calculo: refeitos na proxima carga, sem comando."""
+        return [d for (d,) in db.execute(text(
+            "SELECT DISTINCT data_pregao FROM ativo_liquidez_diaria WHERE versao_calculo <> :v "
+            "AND data_pregao >= :d ORDER BY data_pregao"), {"v": versao, "d": desde})]
     def ultima_data_calculada(self, db: Any) -> date | None:
         return db.execute(text("SELECT MAX(data_pregao) FROM ativo_liquidez_diaria")).scalar()
 

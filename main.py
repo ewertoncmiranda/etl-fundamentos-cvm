@@ -34,6 +34,7 @@ from app.config.composicao import (
     montar_conciliacao,
     montar_eventos_corporativos,
     montar_liquidez,
+    montar_prontidao,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -288,7 +289,7 @@ CODIGO_ALERTA_CONCILIACAO = 3
 
 
 def _liquidez_depois_do_cotahist(settings: Settings, logger) -> int:
-    """Plano OPR (OPR-ETL-1): a liquidez faz parte da carga do COTAHIST, sem comando proprio
+    """Plano OPR (OPR-ETL-1/3/4/5): liquidez e prontidao fazem parte da carga do COTAHIST, sem comando proprio
     (AGENTS.md, start unico). Calcula os pregoes novos; na primeira vez, o historico inicial."""
     try:
         resultado = montar_liquidez(settings, logger).executar()
@@ -301,6 +302,13 @@ def _liquidez_depois_do_cotahist(settings: Settings, logger) -> int:
             len(resultado.pregoes), resultado.pregoes[0], resultado.pregoes[-1],
             resultado.gravados, resultado.com_63d,
         )
+    # OPR-ETL-4/5: ponto no tempo e prontidao do pregao. INCOMPLETO nao e falha da carga: e o estado
+    # que impede o diario operacional de rodar aquele pregao (o aviso vai no log).
+    try:
+        montar_prontidao(settings, logger)()
+    except Exception as erro:
+        logger.error("Prontidao (OPR) falhou: %s", erro, exc_info=True)
+        return 1
     return 0
 
 def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:

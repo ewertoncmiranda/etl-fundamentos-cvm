@@ -183,6 +183,14 @@ def montar_liquidez(settings: Settings, logger: Logger) -> CalcularLiquidez:
     )
 
 
+def montar_prontidao(settings: Settings, logger: Logger):
+    """OPR-ETL-4/5: auditoria de ponto no tempo e prontidao do pregao, depois da liquidez."""
+    from app.aplicacao.prontidao_operacional import registrar_prontidao  # noqa: PLC0415
+
+    banco = _montar_banco(settings, logger)
+    return lambda: registrar_prontidao(
+        UnidadeDeTrabalho(banco.fabrica_de_sessao), RepositorioExecucaoSql(logger), logger)
+
 def montar_conciliacao(settings: Settings, logger: Logger) -> ConciliarPrecos:
     banco = _montar_banco(settings, logger)
     return ConciliarPrecos(
