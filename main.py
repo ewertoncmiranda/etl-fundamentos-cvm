@@ -33,6 +33,8 @@ from app.config.composicao import (
     montar_caso_de_uso,
     montar_conciliacao,
     montar_eventos_corporativos,
+    montar_liquidez,
+    montar_prontidao,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -170,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
                 resultado_series.anos_pulados,
                 resultado_series.candles_gravados,
             )
-            return 0
+            return _liquidez_depois_do_cotahist(settings, logger)
         if argumentos.ttm:
             resultado_ttm = montar_carga_ttm(settings, logger).executar(
                 anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
@@ -229,7 +231,8 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
             montar_carga_ttm(settings, logger).executar(
                 [ano], simbolos, forcar, universo_backtest=not simbolos))),
         ("preco oficial (COTAHIST)", lambda: _sem_erro(
-            montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))),
+            montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))
+            or _liquidez_depois_do_cotahist(settings, logger)),
         # Plano LAC (L1): proventos da DVA do ano anterior e do corrente, pelo
         # cache (sem download novo); upsert, entao repetir e inofensivo.
         ("proventos (DVA)", lambda: _sem_erro(
@@ -284,6 +287,29 @@ def _inferir_eventos(argumentos: argparse.Namespace, settings: Settings, logger)
 
 CODIGO_ALERTA_CONCILIACAO = 3
 
+
+def _liquidez_depois_do_cotahist(settings: Settings, logger) -> int:
+    """Plano OPR (OPR-ETL-1/3/4/5): liquidez e prontidao fazem parte da carga do COTAHIST, sem comando proprio
+    (AGENTS.md, start unico). Calcula os pregoes novos; na primeira vez, o historico inicial."""
+    try:
+        resultado = montar_liquidez(settings, logger).executar()
+    except Exception as erro:
+        logger.error("Liquidez (OPR) falhou depois do COTAHIST: %s", erro, exc_info=True)
+        return 1
+    if resultado.pregoes:
+        logger.info(
+            "Liquidez concluida | pregoes=%d (%s..%s) | linhas=%d | com media 63d=%d",
+            len(resultado.pregoes), resultado.pregoes[0], resultado.pregoes[-1],
+            resultado.gravados, resultado.com_63d,
+        )
+    # OPR-ETL-4/5: ponto no tempo e prontidao do pregao. INCOMPLETO nao e falha da carga: e o estado
+    # que impede o diario operacional de rodar aquele pregao (o aviso vai no log).
+    try:
+        montar_prontidao(settings, logger)()
+    except Exception as erro:
+        logger.error("Prontidao (OPR) falhou: %s", erro, exc_info=True)
+        return 1
+    return 0
 
 def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
     """0 sem alerta (ou antes da V15 existir); 3 com divergencia grave, para o
