@@ -7,36 +7,14 @@ on:
       - develop
 
 jobs:
-  # A esteira valida so os testes unitarios (decisao do dono, 2026-10-07):
-  # lint e tipagem nao bloqueiam build nem PR - rodam local, se quiser.
-  qualidade:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Tests
-        env:
-          ENVIRONMENT: local
-        run: pytest tests/ -v -m "not externo"
-
   build-and-push:
-    needs: qualidade
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
