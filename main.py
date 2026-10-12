@@ -35,6 +35,7 @@ from app.config.composicao import (
     montar_eventos_corporativos,
     montar_liquidez,
     montar_prontidao,
+    montar_qualidade_opcoes,
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
@@ -309,6 +310,11 @@ def _liquidez_depois_do_cotahist(settings: Settings, logger) -> int:
     except Exception as erro:
         logger.error("Prontidao (OPR) falhou: %s", erro, exc_info=True)
         return 1
+    # OPT-ETL-4: metricas de qualidade da cadeia de opcoes. Nao bloqueia o operacional.
+    try:
+        montar_qualidade_opcoes(settings, logger)()
+    except Exception as erro:
+        logger.error("Qualidade opcoes (OPT) falhou: %s", erro, exc_info=True)
     return 0
 
 def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:

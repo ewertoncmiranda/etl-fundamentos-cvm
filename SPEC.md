@@ -1,4 +1,4 @@
-# SPEC — etl-fundamentos-cvm
+﻿# SPEC — etl-fundamentos-cvm
 
 **Versão:** 1.0.0 · **Status:** IMPLEMENTADO · **Atualizada em:** 2026-09-27
 **Público:** desenvolvedores humanos e agentes de IA.
@@ -439,3 +439,37 @@ Entregar dados suficientes para o front responder “por que este ticker está o
 | `gerar-insights#OPRV2-INS-3` | eventos e causas para tese explicada |
 | `gestor#OPRV2-GES-3` | timeline por ticker |
 | `painel#OPRV2-PAI-2/5/7` | cards, timeline e filtros por liquidez/risco/dado |
+
+---
+
+## Plano OPT: cadeia de opções B3 e identidade de ativos (2026-10-12)
+
+**Status:** EM ANDAMENTO · **Contexto comum:** ver `infra-b3-ecossytem/SPEC.md`, Plano OPT. A carga antiga de `opcao_b3_diaria` é suspeita: a base local tinha 321.410 registros, muitos prefixos de ETF/FII (`PIBB`, `BOVA`, `HGRE`, etc.) e vencimento `9999-12-31`, enquanto `BVMF3/B3SA3/PETR/VALE/ITUB` não retornavam cadeia. A partir de 2026-10-12, o parser não usa mais BDI 12/14 como verdade de opção: usa `TPMERC 070/080`, valida vencimento/strike/padrão do símbolo e rejeita registros contaminados. Até reprocessar histórico com a imagem nova, dados antigos da tabela continuam contaminados.
+
+### Regras para agentes
+
+- Não criar flag/comando novo. A correção roda dentro da carga COTAHIST/start único.
+- Não orientar o usuário a executar backfill manual. Se histórico precisar ser reprocessado, a própria etapa deve detectar tabela contaminada/vazia e recompor de forma idempotente.
+- ETL só mede e classifica dado; não calcula estratégia de opções nem recomendação.
+- IDs `OPT-ETL-*` são reservados; não renomear.
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPT-ETL-1 | Auditar a classificação atual de opções no COTAHIST e gerar métricas por motivo: vencimento `9999-12-31`, strike zero, ETF/FII, ação comum, símbolo sem padrão de opção, ativo-objeto ausente | — | Teste/relatório reproduz os achados atuais (`PIBB`, `BOVA`, `HGRE`, `BVMF/B3SA/PETR` sem cadeia) e quantifica válidos/invalidos sem alterar dado | IMPLEMENTADO (Sessão B, 2026-10-12): causa identificada — `BDI 12/14` isolado capturava instrumentos que não são opção; opção real deve usar `TPMERC 070/080`. `resumir_validacao_opcoes()` gera totais, válidos, inválidos, vencimento 9999, ativos com cadeia, motivos e prefixos suspeitos; carga COTAHIST registra o resumo em log. Teste cobre `BOVA`/`HGRE` como inválidos |
+| OPT-ETL-2 | Corrigir parser de opções reais do COTAHIST usando os campos corretos do layout para mercado/instrumento, ativo-objeto, tipo (`CALL`/`PUT`), vencimento, strike, ISIN e preços | infra#OPT-INFRA-1, OPT-ETL-1 | Opções reais são gravadas com `ativo_objeto`; instrumentos sem vencimento real não entram como cadeia válida; recarga do mesmo arquivo é idempotente | IMPLEMENTADO PARCIAL (Sessão B, 2026-10-12): `LeitorCotahist.ler_opcoes_linhas()` usa `TPMERC 070=CALL` e `080=PUT`, deriva `ativo_objeto` pelo padrão do símbolo (`PETRA32 -> PETR`), exige vencimento real e `preco_exercicio > 0`; em schema antigo o repositório grava apenas `VALIDO`. Persistir `ativo_objeto/tipo/status/motivo` depende de `infra#OPT-INFRA-1` |
+| OPT-ETL-3 | Rejeitar/marcar registros inválidos com `status_validacao` e `motivo_rejeicao` estruturados | OPT-ETL-2 | `data_vencimento = 9999-12-31`, `preco_exercicio <= 0` e instrumento não-opção recebem motivo; ausências não viram zero | IMPLEMENTADO PARCIAL (Sessão B, 2026-10-12): parser marca `mercado_nao_opcao`, `vencimento_sentinela_9999`, `preco_exercicio_invalido`, `simbolo_sem_padrao_opcao`, `tipo_incompativel_com_codigo` e `ativo_objeto_ausente`; `RepositorioOpcaoSql` só envia essas colunas se existirem no banco, caso contrário rejeita inválidos e evita contaminar a tabela V20 |
+| OPT-ETL-4 | Publicar métricas de qualidade da cadeia de opções na prontidão/execução do COTAHIST | OPT-ETL-3, infra#OPT-INFRA-3 | `etl_execucao` ou tabela de saúde registra totais: válidos, inválidos, vencimento 9999, ativos com cadeia, motivos principais | IMPLEMENTADO (Sessão 01, 2026-10-12): `app/aplicacao/qualidade_opcoes.py` — `registrar_qualidade_opcoes` roda depois da prontidão na carga do COTAHIST; grava em `etl_execucao` (fonte `QUALIDADE_OPCOES`) com todos os totais do Plano OPT em JSON; status SUCESSO = ao menos um ativo com cadeia válida e sem legado não validado |
+| OPT-ETL-5 | Alinhar ativos cadastrados e descasados contra identidade canônica (`ativo_identidade`, ISIN, CNPJ, ticker antigo) para alimentar `ativo_objeto` | infra#OPT-INFRA-1 | `BVMF3 -> B3SA3` e outros aliases conhecidos ficam rastreáveis; ETL preserva símbolo original e canônico quando disponível | PLANEJADO |
+
+### Métricas mínimas entregues ao gestor
+
+| Métrica | Definição |
+|---|---|
+| `totalRegistrosOpcoes` | total lido/gravadável da etapa de opções |
+| `registrosValidos` | registros com ativo-objeto, vencimento real, strike e tipo válidos |
+| `registrosInvalidos` | registros rejeitados/marcados por motivo |
+| `registrosVencimento9999` | registros com vencimento sentinela/inválido |
+| `ativosComCadeia` | ativos-objeto com ao menos uma opção válida no último pregão |
+| `prefixosSuspeitos` | maiores prefixos rejeitados por parecerem ETF/FII/ação comum |
