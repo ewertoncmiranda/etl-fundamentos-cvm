@@ -1,21 +1,14 @@
 """Entrypoint do ETL de fundamentos da CVM.
 
-Job em lote, nao servico: carrega, reporta e encerra. O agendamento fica fora
-(cron do host ou GitHub Actions) - container dormindo e um scheduler ruim.
+Job em lote, não serviço: carrega, reporta e encerra. O agendamento fica fora
+(cron do host ou GitHub Actions).
 
-    python main.py                      # anos de CVM_ANOS, ativos monitorados
-    python main.py --ano 2025
-    python main.py --simbolo WEGE3 --simbolo PETR4
-    python main.py --comunicados        # base IPE: ano atual e o anterior
-    python main.py --comunicados --forcar --categoria ASSEMBLEIA
-    python main.py --rotina             # tudo do dia: IPE, DFP, TTM e COTAHIST
-    python main.py --conciliar          # foto da BRAPI x COTAHIST (infra V15)
-    python main.py --proventos --ano 2024 --universo-backtest  # DVA (infra V16)
-    python main.py --eventos-corporativos   # desdobramentos etc. (todos os anos)
-
-O --rotina e o comando padrao do servico no docker compose: e o que roda
-ao clicar em "play" no container pelo Docker Desktop, sem argumento nem
-variavel nenhuma.
+    python main.py                      # Carrega TUDO: COTAHIST + fundamentos + TTM +
+                                        # comunicados + proventos + eventos (últimos 5 anos)
+    python main.py --rotina             # Rotina diária agendada (ano atual + anterior)
+    python main.py --ano 2023           # Restringe o "carrega tudo" a um ano específico
+    python main.py --simbolo WEGE3      # Restringe a um ticker
+    python main.py --forcar             # Reprocessa mesmo sem mudança de ETag
 """
 
 from __future__ import annotations
@@ -40,93 +33,37 @@ from app.config.composicao import (
 )
 from app.config.config_logger import configurar_logger
 from app.config.settings import Settings, carregar_env
-from app.dominio.comunicado import CATEGORIAS, CATEGORIAS_PADRAO
+from app.dominio.comunicado import CATEGORIAS_PADRAO
+
+ANOS_HISTORICO = 5
 
 
 def analisar_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ETL de fundamentos da CVM")
     parser.add_argument(
+        "--rotina",
+        action="store_true",
+        help="rotina diária agendada: comunicados, fundamentos, TTM e COTAHIST do ano atual",
+    )
+    parser.add_argument(
         "--ano",
         type=int,
         action="append",
         dest="anos",
-        help="ano a carregar; repetivel. Padrao: CVM_ANOS",
-    )
-    parser.add_argument(
-        "--universo-backtest",
-        action="store_true",
-        help="com a carga de fundamentos, --ttm ou --proventos: todo o universo do "
-        "backtest (acoes liquidas de cada ano no COTAHIST), nao so os monitorados",
-    )
-    parser.add_argument(
-        "--rotina",
-        action="store_true",
-        help="carga do dia inteira: comunicados, DFP do ano anterior e do atual, "
-        "TTM e COTAHIST do ano atual (ignora --ano)",
-    )
-    parser.add_argument(
-        "--cotahist",
-        action="store_true",
-        help="carrega serie historica anual bruta da B3 em vez dos fundamentos CVM",
-    )
-    parser.add_argument(
-        "--ttm",
-        action="store_true",
-        help="deriva os ultimos doze meses combinando DFP e ITR acumulados",
+        help="restringe a carga a este ano; repetível. Padrão (sem --rotina): últimos 5 anos",
     )
     parser.add_argument(
         "--simbolo",
         action="append",
         dest="simbolos",
-        help="restringe a estes tickers; repetivel. Padrao: ativo_monitorado",
-    )
-    parser.add_argument(
-        "--comunicados",
-        action="store_true",
-        help="carrega os comunicados oficiais da base IPE (fato relevante, proventos...)",
-    )
-    parser.add_argument(
-        "--categoria",
-        action="append",
-        dest="categorias",
-        choices=sorted(set(CATEGORIAS.values())),
-        help="com --comunicados: categoria a carregar; repetivel. Padrao: "
-        + ", ".join(CATEGORIAS_PADRAO),
-    )
-    parser.add_argument(
-        "--proventos",
-        action="store_true",
-        help="JCP e dividendos por trimestre a partir da DVA da CVM (infra V16, plano LAC)",
-    )
-    parser.add_argument(
-        "--eventos-corporativos",
-        action="store_true",
-        help="desdobramento, grupamento e bonificacao a partir da marca ex do COTAHIST "
-        "e da composicao de capital ja carregados (sem download); --ano restringe",
-    )
-    parser.add_argument(
-        "--conciliar",
-        action="store_true",
-        help="compara a foto da BRAPI (17:40) com o COTAHIST e registra o veredito "
-        "em etl_execucao; sai com 3 quando ha divergencia grave",
-    )
-    parser.add_argument(
-        "--data",
-        type=date.fromisoformat,
-        help="com --conciliar: pregao especifico (AAAA-MM-DD), mesmo ja conciliado",
+        help="restringe a estes tickers; repetível. Padrão: todos os monitorados",
     )
     parser.add_argument(
         "--forcar",
         action="store_true",
-        help="processa mesmo com ETag igual (universo, curadoria ou categorias mudaram)",
+        help="reprocessa mesmo com ETag inalterado",
     )
     return parser.parse_args(argv)
-
-
-def anos_de_comunicados(hoje: date) -> list[int]:
-    """Ano atual e o anterior: em janeiro o arquivo do ano novo ainda esta quase
-    vazio, e so o atual deixaria a linha do tempo em branco."""
-    return [hoje.year - 1, hoje.year]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,117 +76,38 @@ def main(argv: list[str] | None = None) -> int:
     if argumentos.rotina:
         return _rotina(argumentos, settings, logger)
 
-    if argumentos.comunicados:
-        return _carregar_comunicados(argumentos, settings, logger)
+    return _carregar_tudo(argumentos, settings, logger)
 
-    if argumentos.conciliar:
-        return _conciliar(argumentos, settings, logger)
 
-    if argumentos.proventos:
-        return _carregar_proventos(argumentos, settings, logger)
-
-    if argumentos.eventos_corporativos:
-        return _inferir_eventos(argumentos, settings, logger)
-
-    anos = argumentos.anos or settings.anos
-    if not anos:
-        logger.critical("Nenhum ano definido. Use --ano ou a variavel CVM_ANOS.")
-        return 2
-
-    logger.info(
-        "Iniciando carga | anos=%s | ambiente=%s | cache=%s",
-        anos,
-        settings.ambiente,
-        settings.cvm_cache_dir,
-    )
-
-    try:
-        if argumentos.cotahist:
-            resultado_series = montar_carga_de_series(settings, logger).executar(
-                anos, argumentos.simbolos, argumentos.forcar
-            )
-            logger.info(
-                "Carga COTAHIST concluida | processados=%s | pulados=%s | candles=%d",
-                resultado_series.anos_processados,
-                resultado_series.anos_pulados,
-                resultado_series.candles_gravados,
-            )
-            codigo = _liquidez_depois_do_cotahist(settings, logger)
-            montar_checagens(settings, logger)()
-            return codigo
-        if argumentos.ttm:
-            resultado_ttm = montar_carga_ttm(settings, logger).executar(
-                anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
-            )
-            logger.info(
-                "Carga TTM concluida | processados=%s | pulados=%s | indicadores=%d",
-                resultado_ttm.anos_processados,
-                resultado_ttm.anos_pulados,
-                resultado_ttm.indicadores_gravados,
-            )
-            montar_checagens(settings, logger)()
-            return 0
-        caso_de_uso = montar_caso_de_uso(settings, logger)
-        resultado = caso_de_uso.executar(
-            anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
-        )
-    except Exception as erro:
-        logger.critical("Carga abortada: %s", erro, exc_info=True)
-        return 1
-
-    logger.info(
-        "Carga concluida | processados=%s | pulados=%s | landing=%d linhas | "
-        "indicadores=%d | simbolos=%d",
-        resultado.anos_processados,
-        resultado.anos_pulados,
-        resultado.linhas_landing,
-        resultado.indicadores_gravados,
-        len(set(resultado.simbolos_atualizados)),
-    )
-
-    if resultado.erros:
-        for mensagem in resultado.erros:
-            logger.error("Erro na carga: %s", mensagem)
-        return 1
-
-    montar_checagens(settings, logger)()
-    return 0
-
+# ---------------------------------------------------------------------------
+# Rotina diária
+# ---------------------------------------------------------------------------
 
 def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
-    """As quatro cargas em sequencia, cada uma isolada: uma falha (CVM fora
-    do ar, por exemplo) nao impede as outras e so muda o codigo de saida.
-    Sem novidade na origem, cada carga custa uma requisicao HEAD (ETag)."""
+    """Etapas do dia em sequência; uma falha não derruba as outras."""
     ano = date.today().year
     simbolos = argumentos.simbolos
     forcar = argumentos.forcar
     etapas = [
         ("comunicados (IPE)", lambda: _carregar_comunicados(
-            argparse.Namespace(anos=None, simbolos=simbolos, categorias=None, forcar=forcar),
-            settings, logger)),
-        # Balancos da camada Base inteira (universo liquido + cadastrados), nao
-        # so dos cadastrados: os insights diarios sem BRAPI precisam deles.
-        # Sem novidade na CVM, custa um HEAD por ano (ETag).
+            [ano - 1, ano], simbolos, None, forcar, settings, logger)),
         ("fundamentos (DFP)", lambda: _codigo_da_carga(
             montar_caso_de_uso(settings, logger).executar(
                 [ano - 1, ano], simbolos, forcar, universo_backtest=not simbolos))),
-        ("ultimos 12 meses (TTM)", lambda: _sem_erro(
+        ("últimos 12 meses (TTM)", lambda: _sem_erro(
             montar_carga_ttm(settings, logger).executar(
                 [ano], simbolos, forcar, universo_backtest=not simbolos))),
-        ("preco oficial (COTAHIST)", lambda: _sem_erro(
+        ("preço oficial (COTAHIST)", lambda: _sem_erro(
             montar_carga_de_series(settings, logger).executar([ano], simbolos, forcar))
             or _liquidez_depois_do_cotahist(settings, logger)),
-        # Plano LAC (L1): proventos da DVA do ano anterior e do corrente, pelo
-        # cache (sem download novo); upsert, entao repetir e inofensivo.
         ("proventos (DVA)", lambda: _sem_erro(
             montar_carga_proventos(settings, logger).executar(
                 [ano - 1, ano], simbolos, universo_backtest=not simbolos))),
-        # TASK-39: checagens de qualidade ao fim de cada carga completa.
         ("checagens de qualidade", montar_checagens(settings, logger)),
     ]
     falhas = []
     for nome, etapa in etapas:
-        logger.info("Rotina | inicio: %s", nome)
+        logger.info("Rotina | início: %s", nome)
         try:
             codigo = etapa()
         except Exception as erro:
@@ -258,128 +116,123 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
         if codigo:
             falhas.append(nome)
     if falhas:
-        logger.error("Rotina concluida com falha em: %s", ", ".join(falhas))
+        logger.error("Rotina concluída com falha em: %s", ", ".join(falhas))
         return 1
-    logger.info("Rotina concluida sem falhas")
+    logger.info("Rotina concluída sem falhas")
     return 0
 
 
-def _carregar_proventos(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
-    anos = argumentos.anos or settings.anos
-    try:
-        resultado = montar_carga_proventos(settings, logger).executar(
-            anos, argumentos.simbolos, argumentos.universo_backtest
-        )
-    except Exception as erro:
-        logger.critical("Carga de proventos abortada: %s", erro, exc_info=True)
-        return 1
+# ---------------------------------------------------------------------------
+# Carga completa (padrão, sem flags)
+# ---------------------------------------------------------------------------
+
+def _carregar_tudo(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
+    """Carrega tudo: COTAHIST + fundamentos + TTM + comunicados + proventos +
+    eventos corporativos para os últimos ANOS_HISTORICO anos."""
+    hoje = date.today()
+    anos = argumentos.anos or list(range(hoje.year - ANOS_HISTORICO, hoje.year + 1))
+    simbolos = argumentos.simbolos
+    forcar = argumentos.forcar
+    universo_backtest = not simbolos
+
     logger.info(
-        "Carga de proventos concluida | anos=%s | periodos=%d",
-        resultado.anos_processados, resultado.periodos_gravados,
+        "Carga completa | anos=%s | simbolos=%s | forcar=%s",
+        anos, simbolos or "todos", forcar,
     )
-    return 0
 
+    etapas = [
+        ("COTAHIST (série histórica)", lambda: _sem_erro(
+            montar_carga_de_series(settings, logger).executar(anos, simbolos, forcar))
+            or _liquidez_depois_do_cotahist(settings, logger)),
+        ("fundamentos (DFP)", lambda: _codigo_da_carga(
+            montar_caso_de_uso(settings, logger).executar(
+                anos, simbolos, forcar, universo_backtest))),
+        ("últimos 12 meses (TTM)", lambda: _sem_erro(
+            montar_carga_ttm(settings, logger).executar(
+                anos, simbolos, forcar, universo_backtest))),
+        ("comunicados (IPE)", lambda: _carregar_comunicados(
+            anos, simbolos, None, forcar or bool(simbolos), settings, logger)),
+        ("proventos (DVA)", lambda: _sem_erro(
+            montar_carga_proventos(settings, logger).executar(
+                anos, simbolos, universo_backtest))),
+        ("eventos corporativos", lambda: _sem_erro(
+            montar_eventos_corporativos(settings, logger).executar(None))),
+        ("checagens de qualidade", montar_checagens(settings, logger)),
+    ]
 
-def _inferir_eventos(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
-    try:
-        resultado = montar_eventos_corporativos(settings, logger).executar(argumentos.anos)
-    except Exception as erro:
-        logger.critical("Inferencia de eventos abortada: %s", erro, exc_info=True)
+    falhas = []
+    for nome, etapa in etapas:
+        logger.info("Carga completa | início: %s", nome)
+        try:
+            codigo = etapa()
+        except Exception as erro:
+            logger.error("Carga completa | %s abortou: %s", nome, erro, exc_info=True)
+            codigo = 1
+        if codigo:
+            falhas.append(nome)
+
+    if falhas:
+        logger.error("Carga completa concluída com falha em: %s", ", ".join(falhas))
         return 1
-    logger.info(
-        "Eventos corporativos concluida | candidatos=%d | gravados=%d | descartados=%s",
-        resultado.candidatos, resultado.gravados, dict(resultado.motivos()),
-    )
+    logger.info("Carga completa concluída sem falhas")
     return 0
 
 
-CODIGO_ALERTA_CONCILIACAO = 3
-
+# ---------------------------------------------------------------------------
+# Helpers compartilhados
+# ---------------------------------------------------------------------------
 
 def _liquidez_depois_do_cotahist(settings: Settings, logger) -> int:
-    """Plano OPR (OPR-ETL-1/3/4/5): liquidez e prontidao fazem parte da carga do COTAHIST, sem comando proprio
-    (AGENTS.md, start unico). Calcula os pregoes novos; na primeira vez, o historico inicial."""
     try:
         resultado = montar_liquidez(settings, logger).executar()
     except Exception as erro:
-        logger.error("Liquidez (OPR) falhou depois do COTAHIST: %s", erro, exc_info=True)
+        logger.error("Liquidez (OPR) falhou: %s", erro, exc_info=True)
         return 1
     if resultado.pregoes:
         logger.info(
-            "Liquidez concluida | pregoes=%d (%s..%s) | linhas=%d | com media 63d=%d",
+            "Liquidez | pregões=%d (%s..%s) | linhas=%d",
             len(resultado.pregoes), resultado.pregoes[0], resultado.pregoes[-1],
-            resultado.gravados, resultado.com_63d,
+            resultado.gravados,
         )
-    # OPR-ETL-4/5: ponto no tempo e prontidao do pregao. INCOMPLETO nao e falha da carga: e o estado
-    # que impede o diario operacional de rodar aquele pregao (o aviso vai no log).
     try:
         montar_prontidao(settings, logger)()
     except Exception as erro:
-        logger.error("Prontidao (OPR) falhou: %s", erro, exc_info=True)
+        logger.error("Prontidão (OPR) falhou: %s", erro, exc_info=True)
         return 1
-    # OPT-ETL-4: metricas de qualidade da cadeia de opcoes. Nao bloqueia o operacional.
     try:
         montar_qualidade_opcoes(settings, logger)()
     except Exception as erro:
-        logger.error("Qualidade opcoes (OPT) falhou: %s", erro, exc_info=True)
+        logger.error("Qualidade opções falhou: %s", erro, exc_info=True)
     return 0
 
-def _conciliar(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
-    """0 sem alerta (ou antes da V15 existir); 3 com divergencia grave, para o
-    script da rotina disparar o alerta sem confundir com falha de carga (1)."""
+
+def _carregar_comunicados(anos, simbolos, categorias, forcar, settings, logger) -> int:
+    cats = categorias or list(CATEGORIAS_PADRAO)
     try:
-        resultado = montar_conciliacao(settings, logger).executar(argumentos.data)
+        resultado = montar_carga_de_comunicados(settings, logger).executar(
+            anos, simbolos, cats, forcar
+        )
     except Exception as erro:
-        logger.critical("Conciliacao abortada: %s", erro, exc_info=True)
+        logger.critical("Comunicados abortados: %s", erro, exc_info=True)
         return 1
-    if not resultado.resumos and resultado.disponivel:
-        logger.info("Conciliacao: nenhum pregao novo para conciliar")
-    return CODIGO_ALERTA_CONCILIACAO if resultado.alerta else 0
+    logger.info(
+        "Comunicados | processados=%s | lidos=%d | gravados=%d",
+        resultado.anos_processados,
+        resultado.documentos_lidos,
+        resultado.documentos_gravados,
+    )
+    for mensagem in resultado.erros:
+        logger.error("Erro comunicados: %s", mensagem)
+    return 1 if resultado.erros else 0
 
 
 def _sem_erro(_resultado) -> int:
-    """TTM e COTAHIST nao acumulam erro: falha neles vira excecao."""
     return 0
 
 
 def _codigo_da_carga(resultado) -> int:
     for mensagem in resultado.erros:
         logging.getLogger("etl-fundamentos-cvm").error("Erro na carga: %s", mensagem)
-    return 1 if resultado.erros else 0
-
-
-def _carregar_comunicados(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
-    anos = argumentos.anos or anos_de_comunicados(date.today())
-    categorias = argumentos.categorias or list(CATEGORIAS_PADRAO)
-    # Pedir simbolo explicito e sinal de recorte novo: o ETag nao mudou, mas
-    # esses tickers talvez nunca tenham sido carregados.
-    forcar = argumentos.forcar or bool(argumentos.simbolos)
-
-    logger.info(
-        "Iniciando carga de comunicados | anos=%s | categorias=%s | forcar=%s",
-        anos,
-        categorias,
-        forcar,
-    )
-    try:
-        resultado = montar_carga_de_comunicados(settings, logger).executar(
-            anos, argumentos.simbolos, categorias, forcar
-        )
-    except Exception as erro:
-        logger.critical("Carga de comunicados abortada: %s", erro, exc_info=True)
-        return 1
-
-    logger.info(
-        "Carga de comunicados concluida | processados=%s | pulados=%s | lidos=%d | "
-        "gravados=%d | tickers com novidade=%s",
-        resultado.anos_processados,
-        resultado.anos_pulados,
-        resultado.documentos_lidos,
-        resultado.documentos_gravados,
-        resultado.simbolos_com_novidade,
-    )
-    for mensagem in resultado.erros:
-        logger.error("Erro na carga de comunicados: %s", mensagem)
     return 1 if resultado.erros else 0
 
 
