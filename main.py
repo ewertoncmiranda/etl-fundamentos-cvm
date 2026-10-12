@@ -31,6 +31,7 @@ from app.config.composicao import (
     montar_carga_proventos,
     montar_carga_ttm,
     montar_caso_de_uso,
+    montar_checagens,
     montar_conciliacao,
     montar_eventos_corporativos,
     montar_liquidez,
@@ -173,7 +174,9 @@ def main(argv: list[str] | None = None) -> int:
                 resultado_series.anos_pulados,
                 resultado_series.candles_gravados,
             )
-            return _liquidez_depois_do_cotahist(settings, logger)
+            codigo = _liquidez_depois_do_cotahist(settings, logger)
+            montar_checagens(settings, logger)()
+            return codigo
         if argumentos.ttm:
             resultado_ttm = montar_carga_ttm(settings, logger).executar(
                 anos, argumentos.simbolos, argumentos.forcar, argumentos.universo_backtest
@@ -184,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
                 resultado_ttm.anos_pulados,
                 resultado_ttm.indicadores_gravados,
             )
+            montar_checagens(settings, logger)()
             return 0
         caso_de_uso = montar_caso_de_uso(settings, logger)
         resultado = caso_de_uso.executar(
@@ -208,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Erro na carga: %s", mensagem)
         return 1
 
+    montar_checagens(settings, logger)()
     return 0
 
 
@@ -239,6 +244,8 @@ def _rotina(argumentos: argparse.Namespace, settings: Settings, logger) -> int:
         ("proventos (DVA)", lambda: _sem_erro(
             montar_carga_proventos(settings, logger).executar(
                 [ano - 1, ano], simbolos, universo_backtest=not simbolos))),
+        # TASK-39: checagens de qualidade ao fim de cada carga completa.
+        ("checagens de qualidade", montar_checagens(settings, logger)),
     ]
     falhas = []
     for nome, etapa in etapas:

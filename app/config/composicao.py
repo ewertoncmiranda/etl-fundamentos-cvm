@@ -201,6 +201,23 @@ def montar_qualidade_opcoes(settings: Settings, logger: Logger):
         UnidadeDeTrabalho(banco.fabrica_de_sessao), RepositorioExecucaoSql(logger), logger)
 
 
+def montar_checagens(settings: Settings, logger: Logger):
+    """TASK-39: checagens de qualidade de dados ao fim de cada carga completa."""
+    from app.checagens.checagem_dados import executar_todas  # noqa: PLC0415
+
+    uow = UnidadeDeTrabalho(_montar_banco(settings, logger).fabrica_de_sessao)
+
+    def _executar() -> int:
+        with uow.transacao() as db:
+            resultado = executar_todas(db)
+        total = sum(resultado.values())
+        if total:
+            logger.info("Checagens de qualidade: %d ocorrencia(s) gravada(s)", total)
+        return 0
+
+    return _executar
+
+
 def montar_conciliacao(settings: Settings, logger: Logger) -> ConciliarPrecos:
     banco = _montar_banco(settings, logger)
     return ConciliarPrecos(

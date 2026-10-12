@@ -8,9 +8,10 @@ codigo canonico de cada empresa e qual CNPJ usar; o FCA cobre o resto.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.dominio.modelo import Ticker
+from app.dominio.serie_historica import OpcaoB3
 
 
 @dataclass(frozen=True)
@@ -89,3 +90,47 @@ def codigos_negociados(simbolos: list[str], identidades: dict[str, Identidade]) 
         if identidade.simbolo_canonico in codigos and identidade.continuidade_preco:
             codigos.add(identidade.simbolo)
     return codigos
+
+
+def canonizar_ativo_objeto_opcao(
+    ativo_objeto: str | None,
+    identidades: dict[str, Identidade],
+) -> str | None:
+    """Converte o prefixo de opcao para o prefixo canonico quando ha curadoria.
+
+    O COTAHIST traz o codigo negociado no dia. Para opcoes antigas de empresas
+    renomeadas, o prefixo tambem pode ser antigo (ex.: BVMF -> B3SA). A tabela
+    `ativo_identidade` guarda essa ponte por ticker (`BVMF3 -> B3SA3`); aqui
+    usamos so os quatro primeiros caracteres para alimentar `ativo_objeto`.
+    """
+    if not ativo_objeto:
+        return None
+    raiz = ativo_objeto.strip().upper()[:4]
+    if len(raiz) != 4:
+        return raiz or None
+    for identidade in identidades.values():
+        if (
+            identidade.continuidade_preco
+            and identidade.simbolo.strip().upper().startswith(raiz)
+            and identidade.simbolo_canonico
+        ):
+            return identidade.simbolo_canonico.strip().upper()[:4]
+    return raiz
+
+
+def canonizar_opcoes(
+    opcoes: list[OpcaoB3],
+    identidades: dict[str, Identidade],
+) -> list[OpcaoB3]:
+    """Retorna opcoes com `ativo_objeto` canonico, preservando o simbolo negociado."""
+    if not identidades:
+        return opcoes
+    saida: list[OpcaoB3] = []
+    for opcao in opcoes:
+        canonico = canonizar_ativo_objeto_opcao(opcao.ativo_objeto, identidades)
+        ativo_atual = opcao.ativo_objeto.strip().upper() if opcao.ativo_objeto else None
+        if canonico == ativo_atual:
+            saida.append(opcao)
+        else:
+            saida.append(replace(opcao, ativo_objeto=canonico))
+    return saida
