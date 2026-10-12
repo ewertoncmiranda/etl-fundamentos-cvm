@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from logging import Logger
 
-from app.dominio.identidade import codigos_negociados
+from app.dominio.identidade import canonizar_opcoes, codigos_negociados
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO
+from app.dominio.serie_historica import resumir_validacao_opcoes
 from app.portas.fonte_series import FonteDeOpcoes, FonteDeSeries
 from app.portas.repositorios import RepositorioExecucao, RepositorioOpcao, RepositorioSeries
 
@@ -105,10 +106,23 @@ class CarregarSeriesHistoricas:
                 from datetime import date as _date
                 usar_cache_opcoes = ano < _date.today().year
                 opcoes = self._fonte_opcoes.opcoes(ano, usar_cache=usar_cache_opcoes)
+                if self._identidade is not None:
+                    with self._uow.transacao() as db:
+                        opcoes = canonizar_opcoes(opcoes, self._identidade.identidades(db))
+                resumo_opcoes = resumir_validacao_opcoes(opcoes)
                 with self._uow.transacao() as db:
                     opcoes_gravadas = self._opcao.salvar_opcoes_b3(db, opcoes)
                 resultado.opcoes_gravadas += opcoes_gravadas
-                self._logger.info("COTAHIST %s: %d opcoes B3 gravadas", ano, opcoes_gravadas)
+                self._logger.info(
+                    "COTAHIST %s: %d opcoes B3 gravadas | lidas=%d | validas=%d | "
+                    "invalidas=%d | motivos=%s",
+                    ano,
+                    opcoes_gravadas,
+                    resumo_opcoes["total"],
+                    resumo_opcoes["validos"],
+                    resumo_opcoes["invalidos"],
+                    resumo_opcoes["motivos"],
+                )
         return resultado
 
     def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str] | None:

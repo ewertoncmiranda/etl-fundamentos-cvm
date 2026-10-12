@@ -576,7 +576,42 @@ class RepositorioSeriesSql:
 
 
 class RepositorioOpcaoSql:
+    COLUNAS_OPT_VALIDACAO = (
+        "ativo_objeto",
+        "tipo_opcao",
+        "status_validacao",
+        "motivo_rejeicao",
+    )
+
+    def _colunas_opcionais_existentes(self, db: Any) -> set[str]:
+        """OPT-INFRA-1 ainda pode nao existir no banco.
+
+        Enquanto a migration nao chega, invalidos ficam fora do INSERT para a
+        tabela antiga nao continuar contaminada. Quando as colunas existem, o
+        ETL passa a preservar motivo estruturado sem mudar o start unico.
+        """
+        try:
+            schema = db.execute(text("SELECT DATABASE()")).scalar()
+            if not schema:
+                return set()
+            linhas = db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = 'opcao_b3_diaria' "
+                    "AND column_name IN :colunas"
+                ).bindparams(bindparam("colunas", expanding=True)),
+                {"schema": schema, "colunas": list(self.COLUNAS_OPT_VALIDACAO)},
+            )
+            return {linha[0] for linha in linhas}
+        except Exception:
+            return set()
+
     def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        colunas_opcionais = self._colunas_opcionais_existentes(db)
+        schema_com_validacao = set(self.COLUNAS_OPT_VALIDACAO).issubset(colunas_opcionais)
+        opcoes_para_gravar = list(opcoes) if schema_com_validacao else [
+            o for o in opcoes if o.status_validacao == "VALIDA"
+        ]
         registros = [
             {
                 "simbolo": o.simbolo,
@@ -594,19 +629,28 @@ class RepositorioOpcaoSql:
                 "volume_financeiro": o.volume_financeiro,
                 "fator_cotacao": o.fator_cotacao,
                 "isin": o.isin,
+                **({
+                    "ativo_objeto": o.ativo_objeto,
+                    "tipo_opcao": o.tipo_opcao,
+                    "status_validacao": o.status_validacao,
+                    "motivo_rejeicao": o.motivo_rejeicao,
+                } if schema_com_validacao else {}),
             }
-            for o in opcoes
+            for o in opcoes_para_gravar
         ]
+        colunas_atualizaveis = [
+            "bdi", "data_vencimento", "preco_exercicio",
+            "abertura", "maxima", "minima", "fechamento", "preco_medio",
+            "volume", "numero_negocios", "volume_financeiro",
+            "fator_cotacao", "isin",
+        ]
+        if schema_com_validacao:
+            colunas_atualizaveis.extend(self.COLUNAS_OPT_VALIDACAO)
         return _upsert(
             db,
             OpcaoB3DiariaEntity,
             registros,
-            (
-                "bdi", "data_vencimento", "preco_exercicio",
-                "abertura", "maxima", "minima", "fechamento", "preco_medio",
-                "volume", "numero_negocios", "volume_financeiro",
-                "fator_cotacao", "isin",
-            ),
+            tuple(colunas_atualizaveis),
         )
 
 

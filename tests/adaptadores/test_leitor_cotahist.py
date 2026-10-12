@@ -3,6 +3,7 @@ from decimal import Decimal
 import pytest
 
 from app.adaptadores.b3.leitor_cotahist import LeitorCotahist
+from app.dominio.serie_historica import resumir_validacao_opcoes
 
 
 def _linha_cotahist(simbolo: str = "PETR4", mercado: str = "010") -> str:
@@ -55,6 +56,21 @@ def _com(linha: str, inicio: int, fim: int, valor: str, alinhar_esquerda: bool =
     return linha[:inicio] + campo[:largura] + linha[fim:]
 
 
+def _linha_opcao(
+    simbolo: str = "PETRA32",
+    mercado: str = "070",
+    bdi: str = "00",
+    vencimento: str = "20261120",
+    strike_centavos: str = "3200",
+) -> str:
+    linha = _linha_cotahist(simbolo)
+    linha = _com(linha, 10, 12, bdi)
+    linha = _com(linha, 24, 27, mercado)
+    linha = _com(linha, 188, 201, strike_centavos)
+    linha = _com(linha, 202, 210, vencimento)
+    return linha
+
+
 def test_marca_ex_vem_do_especi_e_campos_novos_sao_lidos():
     # RCSL3 em 10-03-2026: "ON  EB" no ESPECI (ex-bonificacao).
     linha = _com(_linha_cotahist("RCSL3"), 39, 49, "ON  EB", alinhar_esquerda=True)
@@ -98,3 +114,73 @@ def test_fatcot_divide_os_precos_por_acao():
 def test_rejeita_registro_de_cotacao_com_largura_incorreta():
     with pytest.raises(ValueError, match="245"):
         LeitorCotahist().ler_linhas([_linha_cotahist()[:-1]], {"PETR4"})
+
+
+def test_opcao_real_usa_tipo_de_mercado_e_deriva_ativo_objeto():
+    call, put = LeitorCotahist().ler_opcoes_linhas([
+        _linha_opcao("PETRA32", mercado="070", bdi="00"),
+        _linha_opcao("PETRM32", mercado="080", bdi="00"),
+    ])
+
+    assert call.status_validacao == "VALIDA"
+    assert call.tipo_opcao == "CALL"
+    assert call.ativo_objeto == "PETR"
+    assert call.preco_exercicio == Decimal("32")
+    assert call.data_vencimento.isoformat() == "2026-11-20"
+    assert put.status_validacao == "VALIDA"
+    assert put.tipo_opcao == "PUT"
+    assert put.ativo_objeto == "PETR"
+
+
+def test_bdi_12_ou_14_sem_mercado_de_opcao_vira_invalida_e_nao_cadeia():
+    # BDI 12/14 isolado contaminava a tabela com ETF/FII e vencimento 9999.
+    (registro,) = LeitorCotahist().ler_opcoes_linhas([
+        _linha_opcao("BOVA11", mercado="010", bdi="12", vencimento="99991231"),
+    ])
+
+    assert registro.status_validacao == "INVALIDA"
+    assert registro.motivo_rejeicao == "mercado_nao_opcao"
+    assert registro.ativo_objeto is None
+    assert registro.tipo_opcao is None
+
+
+def test_rejeita_opcao_com_vencimento_sentinela_ou_strike_zero():
+    vencimento_9999, strike_zero = LeitorCotahist().ler_opcoes_linhas([
+        _linha_opcao("PETRA32", mercado="070", vencimento="99991231"),
+        _linha_opcao("PETRA32", mercado="070", strike_centavos="0"),
+    ])
+
+    assert vencimento_9999.status_validacao == "INVALIDA"
+    assert vencimento_9999.motivo_rejeicao == "vencimento_sentinela_9999"
+    assert strike_zero.status_validacao == "INVALIDA"
+    assert strike_zero.motivo_rejeicao == "preco_exercicio_invalido"
+
+
+def test_rejeita_mercado_de_opcao_com_simbolo_sem_padrao_de_opcao():
+    (registro,) = LeitorCotahist().ler_opcoes_linhas([
+        _linha_opcao("HGRE11", mercado="070", vencimento="20261120", strike_centavos="10000"),
+    ])
+
+    assert registro.status_validacao == "INVALIDA"
+    assert registro.motivo_rejeicao == "simbolo_sem_padrao_opcao"
+
+
+def test_resume_validacao_de_opcoes_por_motivo_e_prefixo():
+    opcoes = LeitorCotahist().ler_opcoes_linhas([
+        _linha_opcao("PETRA32", mercado="070"),
+        _linha_opcao("BOVA11", mercado="010", bdi="12", vencimento="99991231"),
+        _linha_opcao("HGRE11", mercado="070"),
+    ])
+
+    resumo = resumir_validacao_opcoes(opcoes)
+
+    assert resumo["total"] == 3
+    assert resumo["validos"] == 1
+    assert resumo["invalidos"] == 2
+    assert resumo["vencimento_9999"] == 1
+    assert resumo["ativos_com_cadeia"] == ["PETR"]
+    assert resumo["motivos"] == {
+        "mercado_nao_opcao": 1,
+        "simbolo_sem_padrao_opcao": 1,
+    }
+    assert resumo["prefixos_suspeitos"] == {"BOVA": 1, "HGRE": 1}

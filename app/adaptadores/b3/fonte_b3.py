@@ -34,7 +34,7 @@ class FonteB3:
         return self._leitor.ler_zip(conteudo, simbolos)
 
     def opcoes(self, ano: int, usar_cache: bool = False) -> list[OpcaoB3]:
-        """BDI 12 (calls) e 14 (puts) do COTAHIST; reutiliza o cache do ano."""
+        """Opcoes reais do COTAHIST por TPMERC 070/080; reutiliza o cache do ano."""
         nome = self.caminho(ano)
         if usar_cache and self._cache.tem(nome):
             conteudo = self._cache.ler(nome)

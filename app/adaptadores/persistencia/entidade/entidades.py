@@ -259,7 +259,7 @@ class CotacaoB3DiariaEntity(MixinCarimbo, Base):
 
 
 class OpcaoB3DiariaEntity(MixinCarimbo, Base):
-    """Cotacoes diarias de opcoes da B3, do COTAHIST BDI 12/14 (infra V20)."""
+    """Cotacoes diarias de opcoes da B3, do COTAHIST (infra V20 + OPT-INFRA-1)."""
 
     __tablename__ = "opcao_b3_diaria"
     __table_args__ = (
@@ -282,6 +282,10 @@ class OpcaoB3DiariaEntity(MixinCarimbo, Base):
     volume_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(22, 2))
     fator_cotacao: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     isin: Mapped[str | None] = mapped_column(String(12))
+    ativo_objeto: Mapped[str | None] = mapped_column(String(12))
+    tipo_opcao: Mapped[str | None] = mapped_column(String(4))
+    status_validacao: Mapped[str | None] = mapped_column(String(20))
+    motivo_rejeicao: Mapped[str | None] = mapped_column(String(80))
 
 
 class ProventoContabilEntity(MixinCarimbo, Base):

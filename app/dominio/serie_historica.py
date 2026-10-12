@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,12 @@ class CandleB3:
 
 @dataclass(frozen=True)
 class OpcaoB3:
-    """Cotacao diaria de opcao da B3 (BDI 12=call, 14=put) do COTAHIST."""
+    """Cotacao diaria de opcao da B3 no COTAHIST.
+
+    A classificacao correta vem do tipo de mercado (TPMERC 070/080), nao do
+    CODBDI isolado. Campos de validacao ficam opcionais para compatibilidade
+    com bancos que ainda nao receberam a migration OPT-INFRA-1.
+    """
 
     simbolo: str
     bdi: str
@@ -49,3 +55,39 @@ class OpcaoB3:
     isin: str | None = None
     fator_cotacao: int = 1
     preco_medio: Decimal | None = None
+    ativo_objeto: str | None = None
+    tipo_opcao: str | None = None
+    status_validacao: str = "VALIDA"
+    motivo_rejeicao: str | None = None
+
+
+def resumir_validacao_opcoes(opcoes: list[OpcaoB3]) -> dict[str, Any]:
+    """Resumo deterministico da qualidade da cadeia de opcoes lida do COTAHIST."""
+    motivos: dict[str, int] = {}
+    prefixos: dict[str, int] = {}
+    ativos_validos = set()
+    vencimento_9999 = 0
+    validos = 0
+    for opcao in opcoes:
+        if opcao.status_validacao == "VALIDA":
+            validos += 1
+            if opcao.ativo_objeto:
+                ativos_validos.add(opcao.ativo_objeto)
+            continue
+        motivo = opcao.motivo_rejeicao or "motivo_ausente"
+        motivos[motivo] = motivos.get(motivo, 0) + 1
+        prefixo = opcao.simbolo[:4]
+        prefixos[prefixo] = prefixos.get(prefixo, 0) + 1
+        if opcao.data_vencimento == date(9999, 12, 31):
+            vencimento_9999 += 1
+    return {
+        "total": len(opcoes),
+        "validos": validos,
+        "invalidos": len(opcoes) - validos,
+        "vencimento_9999": vencimento_9999,
+        "ativos_com_cadeia": sorted(ativos_validos),
+        "motivos": dict(sorted(motivos.items())),
+        "prefixos_suspeitos": dict(
+            sorted(prefixos.items(), key=lambda item: (-item[1], item[0]))[:10]
+        ),
+    }
