@@ -1,4 +1,4 @@
-# SPEC — etl-fundamentos-cvm
+﻿# SPEC — etl-fundamentos-cvm
 
 **Versão:** 1.0.0 · **Status:** IMPLEMENTADO · **Atualizada em:** 2026-09-27
 **Público:** desenvolvedores humanos e agentes de IA.
@@ -33,7 +33,7 @@ Vocabulário: [`infra-b3-ecossytem/GLOSSARIO.md`](../infra-b3-ecossytem/GLOSSARI
 
 - **Dono neste repo:** fundamentos (DFP), TTM (ITR), comunicados (IPE), COTAHIST, proventos contábeis (DVA), conciliação BRAPI×COTAHIST. Escreve `fato_contabil`, `indicador_fundamentalista`, `comunicado_cvm`, `cotacao_b3_diaria`, `provento_contabil`, `etl_execucao`; **não cria tabelas** — o `VerificadorDeSchema` exige as colunas da V16.
 - **Comandos hoje (composição):** carga padrão (DFP), `--ttm`, `--comunicados`, `--cotahist`, proventos contábeis, `--conciliar` (compara foto BRAPI com COTAHIST). Rodados pela rotina da manhã da infra; TASK-E09 (agendar) é coberta por ela — confirmar e fechar.
-- **Fila local:** LAC-ETL-1, 5, 6, 7 `IMPLEMENTADO` (f9832b0). `PLANEJADO`: LAC-ETL-2 (eventos corporativos), LAC-ETL-3 (TTM trimestral desde 2011), LAC-ETL-4 (anos antigos; testar 1 ano de cada antes). Backfill e `setor_grupo`: LAC-INFRA-2/3 no hub.
+- **Fila local:** LAC-ETL-1..7 `IMPLEMENTADO` (f9832b0, d6594d6, c81278e, 1174020, 8e0cb70, 73f863b, 1ddbc19). Eventos corporativos, TTM trimestral, anos antigos, proventos/COTAHIST/contas de qualidade e backfill foram reconciliados no hub em 2026-10-07. Limites conhecidos: evento do ano corrente só após a DFP do ano; desdobramento sem marca ex não é detectado.
 - **Atenção:** a imagem `etl:develop` publicada é de 2026-09-28 e não inclui `--conciliar`/proventos — o deploy de 2026-10-07 falhou no lint (ISS-E13, TASK-E18). Saúde da rotina agendada: ISS-E13 a E17, TASK-E18 a E22.
 - **Arquivo não commitado de outra sessão:** `app/adaptadores/mensageria/publicador_sqs.py` (contratos) — não editar nem commitar sem o dono.
 
@@ -130,10 +130,10 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | REQ-08 | Carregar série diária bruta do COTAHIST/B3 apenas para ativos monitorados | IMPLEMENTADO (2026-09-26) |
 | REQ-07 | Suportar plano de contas de seguradora | VERIFICADO (2026-10-08: `tests/dominio/test_classificador_seguradora.py` usa rótulos reais da BB Seguridade DFP 2025 e caso pré-IFRS 17) |
 | REQ-09 | Carregar comunicados oficiais da base IPE (`--comunicados`) para os tickers com CNPJ em `cvm_ticker`, gravar em `comunicado_cvm` (`infra#CTR-08`) e publicar `sqs-comunicados-publicados` (`infra#CTR-09`) só com o que é novo | IMPLEMENTADO (2026-09-26) |
-| REQ-10 | Gravar `numero_negocios` por pregão em `cotacao_b3_diaria` a partir do COTAHIST (posições 148–152) | PLANEJADO |
-| REQ-11 | Capturar e persistir o código ISIN de cada papel, cruzando COTAHIST (posições 231–242) e FCA `valor_mobiliario`; gravar em `cvm_ticker` e `cotacao_b3_diaria` | PLANEJADO |
+| REQ-10 | Gravar `numero_negocios` por pregão em `cotacao_b3_diaria` a partir do COTAHIST (posições 148–152) | IMPLEMENTADO (2026-10-07, TASK-E10/V17) |
+| REQ-11 | Capturar e persistir o código ISIN de cada papel, cruzando COTAHIST (posições 231–242) e FCA `valor_mobiliario`; gravar em `cvm_ticker` e `cotacao_b3_diaria` | IMPLEMENTADO (2026-10-07, TASK-E11/V17) |
 | REQ-12 | Carregar breakdown de ações ordinárias e preferenciais da composição de capital do DFP (`QT_ACAO_ORDIN_CAP_INTEGR`, `QT_ACAO_PREF_CAP_INTEGR`) e do FRE (`Quantidade_Acoes_Ordinarias`, `Quantidade_Acoes_Preferenciais`); avaliar persistência separada das respectivas ações em tesouraria | EM ANDAMENTO (capital integralizado DFP+FRE verificado em 2026-10-07, TASK-E12/E14; tesouraria por classe ainda não persistida) |
-| REQ-13 | Gravar `situacao_registro` e `data_constituicao` da empresa a partir do FCA `geral`; campo `uf_municipio` como localização da sede | PLANEJADO |
+| REQ-13 | Gravar `situacao_registro` e `data_constituicao` da empresa a partir do FCA `geral`; campo `uf_municipio` como localização da sede | IMPLEMENTADO (2026-10-07, TASK-E13/V18) |
 | REQ-14 | Abrir `DFC_MD` (DFC método direto) do ZIP do DFP/ITR e persistir em `fato_contabil` com `demonstracao = 'DFC_MD'`, quando presente | IMPLEMENTADO (2026-10-07, TASK-E15) |
 | REQ-15 | Capturar dados de opções do COTAHIST (BDI 12, 14) — vencimento, preço de exercício, código base — após decisão DEC-E09 | IMPLEMENTADO (2026-10-07, TASK-E16) |
 
@@ -200,7 +200,7 @@ LPA, VPA e ROE usam a parcela do **controlador** — convenção das referência
 | ISS-E13 | Alto | A imagem `ewertonmiranda/etl-fundamentos-cvm:develop` é de 2026-09-28 (`f8c7254`, PR #5) e não tem `--conciliar`: o passo "conciliacao brapi x B3" da rotina da manhã sai com código 2 (`unrecognized arguments`) em toda execução desde 2026-09-29. O deploy estava bloqueado por lint (`E501`). Em 2026-10-10 o lint local da feature foi destravado: `ruff check app tests main.py` passou. Falta push/merge na `develop` e confirmação do workflow "Deploy to Docker Hub" | IMPLEMENTADO PARCIAL (TASK-E18) |
 | ISS-E14 | Médio | `ClienteHttpCvm.assinatura()`/`baixar()` repetem erros transitórios de HEAD/GET com espera crescente e preservam falha imediata para 4xx definitivo; um único HTTP 520/timeout não aborta mais a carga até a próxima rodada | IMPLEMENTADO (TASK-E19, 2026-10-08) |
 | ISS-E15 | Médio | Rotina da manhã e backup perdem o dia quando o PC está desligado no horário (07:00 / 12:30): as tarefas não têm "executar assim que possível" nem o gatilho de logon +5 min previsto no plano. Ocorreu em 2026-10-02, 10-06 (backup) e 10-07 (ambas; `0x800710E0`, PC ligado às 07:49). Dono: `infra-b3-ecossytem` | PLANEJADO (TASK-E20) |
-| ISS-E16 | Médio | Logs e arquivos que uma sessão do app Claude grava em `%LOCALAPPDATA%\b3-ecossistema` vão para a cópia virtualizada do pacote MSIX (`Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\b3-ecossistema`), e a leitura de dentro do app vê essa cópia em vez do log real. Diagnósticos de 2026-10-05 e 10-07 leram logs parados; o dump `minha_base_pre-V16_2026-09-30.sql.gz` existe só na cópia. O backup também falhou em 2026-10-04 (`mysqldump`) por não aguardar a stack. Dono: `infra-b3-ecossytem` | PLANEJADO (TASK-E21) |
+| ISS-E16 | Médio | Logs e arquivos que uma sessão do app Claude grava em `%LOCALAPPDATA%\b3-ecossistema` vão para a cópia virtualizada do pacote MSIX (`Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\b3-ecossistema`), e a leitura de dentro do app vê essa cópia em vez do log real. Diagnósticos de 2026-10-05 e 10-07 leram logs parados; o dump `minha_base_pre-V16_2026-09-30.sql.gz` existe só na cópia. O backup também falhou em 2026-10-04 (`mysqldump`) por não aguardar a stack. Dono: `infra-b3-ecossytem` | IMPLEMENTADO (infra#TASK-E21, 2026-10-07; pendente apenas observar próximo backup agendado) |
 | ISS-E17 | Alto | `infra-b3-ecossytem/infra/s3/main.tf` recebeu 86 linhas de lixo (`m,  ,,,` e linhas em branco) no commit `47483c2`, já em `origin/feature-nova-infra`. `terraform fmt` acusava "Argument or block definition required" na linha 4; quando chegasse à develop, a imagem nova do provisionador falharia e o `Garantir-Stack` abortaria a rotina. Dono: `infra-b3-ecossytem` | VERIFICADO (2026-10-10: `infra/s3/main.tf` limpo em `origin/feature-nova-infra`; workflow da infra contém `terraform fmt -check -recursive` e `terraform validate`; `terraform fmt -check infra/s3/main.tf` saiu 0) |
 | ISS-E18 | Alto | Empresas líquidas fora do cadastro e sem fundamentos: `cvm_ticker` tem 264 códigos e não tem BPAC11, TAEE11, KLBN11/KLBN4, SANB3/4/11, ENGI11, ALUP11, SAPR11, IGTI11, MOTV3, SAUD3, CMIN3, PASS3, AXIA7 (entre outras); `indicador_fundamentalista` não tem nenhuma linha delas | gerar-insights OPR-INS-1 em 2026-10-09: 21 ativos com liquidez ALTA/MEDIA bloqueados só por SEM_FUNDAMENTO_VIGENTE | O paper trading não opera grandes nomes (bancos, utilities, units) | Conferir por que o FCA/universo não traz essas companhias (units e classes PN/PNA, CNPJ de holding) e carregar DFP/ITR delas | PLANEJADO |
 
@@ -244,7 +244,7 @@ Achados da análise das execuções agendadas (logs reais em `%LOCALAPPDATA%\b3-
 | TASK-E18 | **Destravar o deploy do `--conciliar`:** quebrar as linhas `E501` em `app/adaptadores/mensageria/publicador_sqs.py` (45, 65; arquivo de outra sessão, combinar com o dono) e `app/adaptadores/persistencia/repositorios.py` (156); commit na feature, merge na develop e confirmar o workflow "Deploy to Docker Hub" verde. **Aceite:** Dado o push na develop, Quando o CI roda, Então `ruff check app tests main.py` passa e a imagem `develop` nova responde `main.py --help` listando `--conciliar`; na rotina seguinte, `etl_execucao` tem uma linha `CONCILIACAO_BRAPI_B3` e `cargas-etl.log` não tem `unrecognized arguments` | ISS-E13 | IMPLEMENTADO PARCIAL (2026-10-10: lint local `ruff check app tests main.py` passou; pendente push/merge na develop e confirmação do workflow/imagem) |
 | TASK-E19 | **Nova tentativa no cliente HTTP:** `ClienteHttpCvm._abrir_com_retry()` repete HEAD e GET até 3 tentativas com espera crescente configurável (`5 s`, `15 s`) apenas para erro transitório (HTTP 5xx, 429, timeout, conexão), registra cada nova tentativa em `WARNING` e mantém 4xx definitivo falhando na primeira. Testes em `tests/adaptadores/test_cliente_http.py` cobrem 520 seguido de 200 em `assinatura()`, timeout seguido de sucesso em `baixar()`, 404 sem retry e esgotamento de tentativas. **Validação local em 2026-10-08:** execução de pytest bloqueada porque o Python global e o `.venv` não possuem `pytest` instalado; implementação e testes existem no branch | ISS-E14 | IMPLEMENTADO (2026-10-08) |
 | TASK-E20 | **(infra) Recuperar execução perdida:** em `scripts/registrar-rotinas.ps1`, marcar `StartWhenAvailable` nas tarefas "B3 - Rotina da manha" e "B3 - Backup MySQL" e/ou registrar o gatilho de logon +5 min (precisa rodar fora do sandbox, pelo usuário). **Aceite:** Dado o PC desligado às 07:00, Quando é ligado às 07:49, Então a rotina roda até ~07:55 e `etl_execucao` tem `GARANTIR_STACK` do dia | ISS-E15 | PLANEJADO |
-| TASK-E21 | **(infra) Logs e backups fora da virtualização do app Claude:** mover `PastaLocal` de `comum.ps1` para fora de `AppData` (ex.: `C:\Users\<user>\b3-ecossistema`) ou documentar que sessões do app devem ler os logs por processo externo; copiar `minha_base_pre-V16_2026-09-30.sql.gz` da cópia do pacote para a pasta real de backups; em `backup-mysql.ps1`, chamar `Garantir-Stack` antes do `mysqldump`. **Aceite:** um log escrito pela rotina agendada é lido idêntico de dentro e de fora do app; o dump pré-V16 está na pasta real; backup com Docker recém-ligado não falha em `mysqldump` | ISS-E16 | PLANEJADO |
+| TASK-E21 | **(infra) Logs e backups fora da virtualização do app Claude:** mover `PastaLocal` de `comum.ps1` para fora de `AppData` (ex.: `C:\Users\<user>\b3-ecossistema`) ou documentar que sessões do app devem ler os logs por processo externo; copiar `minha_base_pre-V16_2026-09-30.sql.gz` da cópia do pacote para a pasta real de backups; em `backup-mysql.ps1`, chamar `Garantir-Stack` antes do `mysqldump`. **Aceite:** um log escrito pela rotina agendada é lido idêntico de dentro e de fora do app; o dump pré-V16 está na pasta real; backup com Docker recém-ligado não falha em `mysqldump` | ISS-E16 | IMPLEMENTADO (infra#TASK-E21, 2026-10-07): pasta movida para `%USERPROFILE%\b3-ecossistema`, dump pré-V16 copiado/conferido e backup chama `Garantir-Stack`; falta só observar uma execução agendada gravando na pasta nova |
 | TASK-E22 | **(infra) Limpar `infra/s3/main.tf`:** remover as 86 linhas antes de `resource "aws_s3_bucket"` com commit novo na `feature-nova-infra` (sem reescrever o histórico já enviado); acrescentar `terraform fmt -check` e `terraform validate` ao workflow de feature da infra. **Aceite:** `terraform fmt -check infra/s3/main.tf` sai 0 na imagem do provisionador; CI da infra falha se um `.tf` não for HCL válido | ISS-E17 | VERIFICADO (2026-10-10: `main.tf` limpo no `HEAD` da infra e `terraform fmt -check infra/s3/main.tf` passou; `terraform validate` local não concluiu por falha do plugin AWS, não por erro HCL) |
 
 ---
@@ -309,7 +309,7 @@ Comando novo: `--eventos-corporativos [--ano ...]`, idempotente, registrando `EV
 
 ### LAC-ETL-3: histórico trimestral desde 2011 (L3)
 
-**Status (07-10-2026): EM ANDAMENTO.** Código pronto: `escolher_trios_por_corte` monta um TTM por trimestre (DFP casada pela data, entre os dois ITRs) e o filtro do ITR fica com o acumulado que começa no início do exercício social, não em 1º/1 (`_so_acumulado`). Falta a carga do ITR 2011–2023. Proventos de quem fecha em março (RAIZ4) ficam só com o valor anual: os ITRs posteriores à DFP do ano são descartados no isolamento, sem dupla contagem.
+**Status (07-10-2026): IMPLEMENTADO.** `escolher_trios_por_corte` monta um TTM por trimestre (DFP casada pela data, entre os dois ITRs) e o filtro do ITR fica com o acumulado que começa no início do exercício social, não em 1º/1 (`_so_acumulado`). A carga ITR 2011–2023 e o backfill foram reconciliados no hub em 2026-10-07. Proventos de quem fecha em março (RAIZ4) ficam só com o valor anual: os ITRs posteriores à DFP do ano são descartados no isolamento, sem dupla contagem.
 
 - O `CarregarTtm` monta hoje **só o trimestre mais recente de cada ano** (`escolher_trios` pega o ITR mais recente). Para o histórico, montar o trio de **cada** trimestre (março, junho e setembro de cada ano, mais o anual), mantendo a regra do mesmo grupo.
 - Carregar ITR 2011–2023 (download novo; o mesmo leitor). Grava `indicador_fundamentalista` com `tipo_periodo = 'TTM'` por trimestre, com a `data_entrega` do ITR.
@@ -410,3 +410,66 @@ Aceite adicional do OPR-ETL-1: para PETR4 e WEGE3 em 2026-10-07 as colunas batem
 - `pytest` cobre liquidez, spread ausente, ativo ilíquido e bloqueio por fundamento futuro.
 - Nenhum campo operacional ausente é gravado como zero por conveniência; ausências usam `NULL` e motivo estruturado.
 - `gerar-insights` consegue consumir um pregão completo sem precisar recalcular liquidez a partir dos arquivos brutos.
+
+---
+
+## Plano OPERABILIDADE V2: dados de mercado para UX operacional (2026-10-11)
+
+**Status:** PLANEJADO · **Contexto:** `infra-b3-ecossytem/SPEC.md`, Plano OPERABILIDADE V2. O ETL continua sem decidir operação; sua função é enriquecer a leitura de mercado do ticker para cards, filtros, explicação, timeline e bloqueios.
+
+### Meta
+
+Entregar dados suficientes para o front responder “por que este ticker está operável, bloqueado ou em observação?” sem recalcular a partir dos arquivos brutos. Toda feature nova entra no start único, preferencialmente dentro das cargas existentes; não criar flags, comandos ou scripts manuais novos.
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPRV2-ETL-1 | Produzir “selo de mercado” por ticker/pregão: liquidez, presença, spread cotado/estimado, volatilidade, ajuste de preço e qualidade da série em formato pronto para snapshot | OPR-ETL-1..3, infra#OPRV2-INFRA-2 | `gerar-insights` consome um único registro por ticker/pregão para montar o card; ausências vêm com motivo estruturado | PLANEJADO |
+| OPRV2-ETL-2 | Enriquecer eventos de mercado para timeline: comunicados CVM, proventos, eventos corporativos, saltos sem evento, mudança de ajuste de preço e dados incompletos | OPR-ETL-3, OPR-ETL-5, LAC-ETL-1..7 | Timeline consegue distinguir evento oficial, evento inferido, lacuna de dado e salto não explicado | PLANEJADO |
+| OPRV2-ETL-3 | Expor métricas de “qualidade do dado” por ticker: fundamento vigente, data de entrega, cobertura de DFP/ITR, cobertura de COTAHIST e razão do bloqueio point-in-time | OPR-ETL-4 | Ativo sem fundamento vigente mostra motivo claro no painel, não apenas “sem dados” | PLANEJADO |
+| OPRV2-ETL-4 | Gerar agregados por setor/grupo para filtros de mercado: liquidez média do setor, volatilidade relativa, quantidade de ativos operáveis/bloqueados e cobertura de dados | LAC-INFRA-2, OPRV2-ETL-1 | Painel filtra “setores com mais ativos operáveis” sem consultar arquivos brutos | PLANEJADO |
+| OPRV2-ETL-5 | Registrar prontidão específica para UX operacional (`PRONTIDAO_OPR_V2`): snapshots aptos, timeline apta, eventos carregados, fundamentos point-in-time e qualidade da série | OPRV2-ETL-1..4 | Infra/painel conseguem mostrar “dados operacionais indisponíveis” com causa precisa quando a carga não fecha | PLANEJADO |
+
+### Dependências para consumidores
+
+| Consumidor | Precisa do ETL para |
+|---|---|
+| `gerar-insights#OPRV2-INS-1` | selo de mercado e qualidade do dado no snapshot |
+| `gerar-insights#OPRV2-INS-3` | eventos e causas para tese explicada |
+| `gestor#OPRV2-GES-3` | timeline por ticker |
+| `painel#OPRV2-PAI-2/5/7` | cards, timeline e filtros por liquidez/risco/dado |
+
+---
+
+## Plano OPT: cadeia de opções B3 e identidade de ativos (2026-10-12)
+
+**Status:** EM ANDAMENTO · **Contexto comum:** ver `infra-b3-ecossytem/SPEC.md`, Plano OPT. A carga antiga de `opcao_b3_diaria` é suspeita: a base local tinha 321.410 registros, muitos prefixos de ETF/FII (`PIBB`, `BOVA`, `HGRE`, etc.) e vencimento `9999-12-31`, enquanto `BVMF3/B3SA3/PETR/VALE/ITUB` não retornavam cadeia. A partir de 2026-10-12, o parser não usa mais BDI 12/14 como verdade de opção: usa `TPMERC 070/080`, valida vencimento/strike/padrão do símbolo e rejeita registros contaminados. Até reprocessar histórico com a imagem nova, dados antigos da tabela continuam contaminados.
+
+### Regras para agentes
+
+- Não criar flag/comando novo. A correção roda dentro da carga COTAHIST/start único.
+- Não orientar o usuário a executar backfill manual. Se histórico precisar ser reprocessado, a própria etapa deve detectar tabela contaminada/vazia e recompor de forma idempotente.
+- ETL só mede e classifica dado; não calcula estratégia de opções nem recomendação.
+- IDs `OPT-ETL-*` são reservados; não renomear.
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPT-ETL-1 | Auditar a classificação atual de opções no COTAHIST e gerar métricas por motivo: vencimento `9999-12-31`, strike zero, ETF/FII, ação comum, símbolo sem padrão de opção, ativo-objeto ausente | — | Teste/relatório reproduz os achados atuais (`PIBB`, `BOVA`, `HGRE`, `BVMF/B3SA/PETR` sem cadeia) e quantifica válidos/invalidos sem alterar dado | IMPLEMENTADO (Sessão B, 2026-10-12): causa identificada — `BDI 12/14` isolado capturava instrumentos que não são opção; opção real deve usar `TPMERC 070/080`. `resumir_validacao_opcoes()` gera totais, válidos, inválidos, vencimento 9999, ativos com cadeia, motivos e prefixos suspeitos; carga COTAHIST registra o resumo em log. Teste cobre `BOVA`/`HGRE` como inválidos |
+| OPT-ETL-2 | Corrigir parser de opções reais do COTAHIST usando os campos corretos do layout para mercado/instrumento, ativo-objeto, tipo (`CALL`/`PUT`), vencimento, strike, ISIN e preços | infra#OPT-INFRA-1, OPT-ETL-1 | Opções reais são gravadas com `ativo_objeto`; instrumentos sem vencimento real não entram como cadeia válida; recarga do mesmo arquivo é idempotente | IMPLEMENTADO PARCIAL (Sessão B, 2026-10-12): `LeitorCotahist.ler_opcoes_linhas()` usa `TPMERC 070=CALL` e `080=PUT`, deriva `ativo_objeto` pelo padrão do símbolo (`PETRA32 -> PETR`), exige vencimento real e `preco_exercicio > 0`; em schema antigo o repositório grava apenas `VALIDO`. Persistir `ativo_objeto/tipo/status/motivo` depende de `infra#OPT-INFRA-1` |
+| OPT-ETL-3 | Rejeitar/marcar registros inválidos com `status_validacao` e `motivo_rejeicao` estruturados | OPT-ETL-2 | `data_vencimento = 9999-12-31`, `preco_exercicio <= 0` e instrumento não-opção recebem motivo; ausências não viram zero | IMPLEMENTADO PARCIAL (Sessão B, 2026-10-12): parser marca `mercado_nao_opcao`, `vencimento_sentinela_9999`, `preco_exercicio_invalido`, `simbolo_sem_padrao_opcao`, `tipo_incompativel_com_codigo` e `ativo_objeto_ausente`; `RepositorioOpcaoSql` só envia essas colunas se existirem no banco, caso contrário rejeita inválidos e evita contaminar a tabela V20 |
+| OPT-ETL-4 | Publicar métricas de qualidade da cadeia de opções na prontidão/execução do COTAHIST | OPT-ETL-3, infra#OPT-INFRA-3 | `etl_execucao` ou tabela de saúde registra totais: válidos, inválidos, vencimento 9999, ativos com cadeia, motivos principais | IMPLEMENTADO (Sessão 01, 2026-10-12): `app/aplicacao/qualidade_opcoes.py` — `registrar_qualidade_opcoes` roda depois da prontidão na carga do COTAHIST; grava em `etl_execucao` (fonte `QUALIDADE_OPCOES`) com todos os totais do Plano OPT em JSON; status SUCESSO = ao menos um ativo com cadeia válida e sem legado não validado |
+| OPT-ETL-5 | Alinhar ativos cadastrados e descasados contra identidade canônica (`ativo_identidade`, ISIN, CNPJ, ticker antigo) para alimentar `ativo_objeto` | infra#OPT-INFRA-1 | `BVMF3 -> B3SA3` e outros aliases conhecidos ficam rastreáveis; ETL preserva símbolo original e canônico quando disponível | PLANEJADO |
+
+### Métricas mínimas entregues ao gestor
+
+| Métrica | Definição |
+|---|---|
+| `totalRegistrosOpcoes` | total lido/gravadável da etapa de opções |
+| `registrosValidos` | registros com ativo-objeto, vencimento real, strike e tipo válidos |
+| `registrosInvalidos` | registros rejeitados/marcados por motivo |
+| `registrosVencimento9999` | registros com vencimento sentinela/inválido |
+| `ativosComCadeia` | ativos-objeto com ao menos uma opção válida no último pregão |
+| `prefixosSuspeitos` | maiores prefixos rejeitados por parecerem ETF/FII/ação comum |

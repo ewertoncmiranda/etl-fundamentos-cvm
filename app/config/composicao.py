@@ -191,6 +191,16 @@ def montar_prontidao(settings: Settings, logger: Logger):
     return lambda: registrar_prontidao(
         UnidadeDeTrabalho(banco.fabrica_de_sessao), RepositorioExecucaoSql(logger), logger)
 
+
+def montar_qualidade_opcoes(settings: Settings, logger: Logger):
+    """OPT-ETL-4: metricas de qualidade da cadeia de opcoes, depois da carga do COTAHIST."""
+    from app.aplicacao.qualidade_opcoes import registrar_qualidade_opcoes  # noqa: PLC0415
+
+    banco = _montar_banco(settings, logger)
+    return lambda: registrar_qualidade_opcoes(
+        UnidadeDeTrabalho(banco.fabrica_de_sessao), RepositorioExecucaoSql(logger), logger)
+
+
 def montar_conciliacao(settings: Settings, logger: Logger) -> ConciliarPrecos:
     banco = _montar_banco(settings, logger)
     return ConciliarPrecos(
