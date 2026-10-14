@@ -122,7 +122,8 @@ class TestResolvedorDeContas:
             somar=True,
         )
         linhas_dfc = (
-            linha("6.01.01.01", "Depreciação e Amortização de PP&E", "800", DFC_MI, conta_fixa=False),
+            linha("6.01.01.01", "Depreciação e Amortização de PP&E", "800", DFC_MI,
+                  conta_fixa=False),
             linha("6.01.01.02", "Amortização de Intangíveis", "200", DFC_MI, conta_fixa=False),
             linha("6.01.01.03", "Variação de Estoques", "50", DFC_MI, conta_fixa=False),
         )

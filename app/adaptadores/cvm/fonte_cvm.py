@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date, datetime
+from decimal import Decimal
 from logging import Logger
 
 from app.adaptadores.cvm.cache_local import CacheDeArquivos
@@ -157,7 +158,7 @@ class FonteCvm:
                 reg = acumulado.setdefault(cnpj, {"versao": versao, "total": _D(0)})
                 reg["total"] += pct
 
-        resultado: dict[str, "Decimal"] = {}
+        resultado: dict[str, Decimal] = {}
         for cnpj, dados in acumulado.items():
             ff = max(_D(0), _D(100) - dados["total"])
             resultado[cnpj] = ff.quantize(_D("0.01"))
