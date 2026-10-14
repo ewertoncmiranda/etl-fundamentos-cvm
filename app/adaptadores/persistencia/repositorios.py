@@ -32,6 +32,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     SerieHistoricaEntity,
     TickerEntity,
 )
+from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
 from app.dominio.modelo import (
     STATUS_SUCESSO,
     ComposicaoCapital,
@@ -385,6 +386,98 @@ class RepositorioOpcaoSql:
 
         colunas_atualizar = list(self._COLUNAS_FIXAS) + sorted(tem_opt)
         return _upsert(db, OpcaoB3DiariaEntity, registros, colunas_atualizar)
+
+
+class RepositorioMetricasMercadoSql:
+    """Le insumos contabeis + cotacoes e grava P/L (I4) e EV/EBITDA (I7).
+
+    As tres queries usam bindparam(expanding=True) para IN dinamico, que e a
+    forma correta no SQLAlchemy 2 com dialeto MySQL.
+    """
+
+    def buscar_insumos_de_mercado(
+        self, db: Any, simbolos: list[str], ano: int
+    ) -> list[InsumoMercado]:
+        from decimal import Decimal as _D
+
+        from sqlalchemy import bindparam, text
+
+        resultado = db.execute(
+            text(
+                "SELECT i.simbolo, i.periodo, i.lpa, i.ebitda, i.divida_liquida, "
+                "i.acoes_ex_tesouraria, e.cnae "
+                "FROM indicador_fundamentalista i "
+                "LEFT JOIN cvm_empresa e ON i.cnpj = e.cnpj "
+                "WHERE i.simbolo IN :simbolos "
+                "AND YEAR(i.periodo) = :ano "
+                "AND i.tipo_periodo = 'ANUAL'"
+            ).bindparams(bindparam("simbolos", expanding=True)),
+            {"simbolos": list(simbolos), "ano": ano},
+        )
+        return [
+            InsumoMercado(
+                simbolo=row[0],
+                periodo=row[1],
+                lpa=_D(str(row[2])) if row[2] is not None else None,
+                ebitda=_D(str(row[3])) if row[3] is not None else None,
+                divida_liquida=_D(str(row[4])) if row[4] is not None else None,
+                acoes_ex_tesouraria=int(row[5]) if row[5] is not None else None,
+                cnae=row[6],
+            )
+            for row in resultado
+        ]
+
+    def buscar_precos_na_data(
+        self, db: Any, simbolos: list[str], data_referencia: Any
+    ) -> dict[str, Any]:
+        from decimal import Decimal as _D
+
+        from sqlalchemy import bindparam, text
+
+        resultado = db.execute(
+            text(
+                "SELECT s1.simbolo, s1.fechamento "
+                "FROM serie_historica s1 "
+                "INNER JOIN ("
+                "    SELECT simbolo, MAX(data_pregao) AS ultima_data "
+                "    FROM serie_historica "
+                "    WHERE simbolo IN :simbolos "
+                "    AND data_pregao <= :data_ref "
+                "    AND fechamento IS NOT NULL "
+                "    GROUP BY simbolo"
+                ") s2 ON s1.simbolo = s2.simbolo AND s1.data_pregao = s2.ultima_data"
+            ).bindparams(bindparam("simbolos", expanding=True)),
+            {"simbolos": list(simbolos), "data_ref": data_referencia},
+        )
+        return {row[0]: _D(str(row[1])) for row in resultado}
+
+    def atualizar_metricas_mercado(self, db: Any, metricas: list[MetricaMercado]) -> int:
+        from sqlalchemy import text
+
+        total = 0
+        for m in metricas:
+            if m.pl is None and m.ev_ebitda is None and m.pl_setorial_mediana is None:
+                continue
+            db.execute(
+                text(
+                    "UPDATE indicador_fundamentalista "
+                    "SET pl = :pl, ev_ebitda = :ev, pl_setorial_mediana = :pl_set "
+                    "WHERE simbolo = :simbolo AND periodo = :periodo"
+                ),
+                {
+                    "pl": float(m.pl) if m.pl is not None else None,
+                    "ev": float(m.ev_ebitda) if m.ev_ebitda is not None else None,
+                    "pl_set": (
+                        float(m.pl_setorial_mediana)
+                        if m.pl_setorial_mediana is not None
+                        else None
+                    ),
+                    "simbolo": m.simbolo,
+                    "periodo": m.periodo,
+                },
+            )
+            total += 1
+        return total
 
 
 class RepositorioExecucaoSql:

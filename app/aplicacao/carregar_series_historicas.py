@@ -26,6 +26,7 @@ class CarregarSeriesHistoricas:
         repositorio_series: RepositorioSeries,
         repositorio_execucao: RepositorioExecucao,
         logger: Logger,
+        atualizador_mercado=None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -33,6 +34,7 @@ class CarregarSeriesHistoricas:
         self._series = repositorio_series
         self._execucao = repositorio_execucao
         self._logger = logger
+        self._atualizador = atualizador_mercado
 
     def executar(
         self, anos: list[int], simbolos_pedidos: list[str] | None = None
@@ -74,6 +76,13 @@ class CarregarSeriesHistoricas:
             resultado.anos_processados.append(ano)
             resultado.candles_gravados += gravados
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
+
+            if self._atualizador and simbolos:
+                try:
+                    self._atualizador.executar([ano], simbolos)
+                except Exception as erro:
+                    self._logger.warning("Multiplos de mercado pos-COTAHIST %s: %s", ano, erro)
+
         return resultado
 
     def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str]:

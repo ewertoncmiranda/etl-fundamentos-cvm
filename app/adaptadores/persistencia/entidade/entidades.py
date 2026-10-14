@@ -161,6 +161,11 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     liquidez_seca: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
     dso: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
     graham_number: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
+    # I7/I4: multiplos de mercado — populados por AtualizarMetricasMercado, nao
+    # pelo fluxo contabil; ficam NULL ate que a serie historica esteja disponivel
+    pl: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
+    ev_ebitda: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
+    pl_setorial_mediana: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
 
     fonte: Mapped[str] = mapped_column(String(20), nullable=False, default="CVM")
     tipo_doc: Mapped[str] = mapped_column(String(5), nullable=False)

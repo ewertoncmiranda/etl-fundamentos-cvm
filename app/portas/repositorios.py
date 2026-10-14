@@ -14,6 +14,9 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any, Protocol
 
+from datetime import date
+
+from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
 from app.dominio.modelo import (
     ComposicaoCapital,
     Empresa,
@@ -69,6 +72,25 @@ class RepositorioIndicador(Protocol):
 
 class RepositorioSeries(Protocol):
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
+        ...
+
+
+class RepositorioMetricasMercado(Protocol):
+    """Le insumos contabeis + cotacoes e grava multiplos de mercado (I4 e I7)."""
+
+    def buscar_insumos_de_mercado(
+        self, db: Any, simbolos: list[str], ano: int
+    ) -> list[InsumoMercado]:
+        ...
+
+    def buscar_precos_na_data(
+        self, db: Any, simbolos: list[str], data_referencia: date
+    ) -> dict[str, Any]:
+        ...
+
+    def atualizar_metricas_mercado(
+        self, db: Any, metricas: list[MetricaMercado]
+    ) -> int:
         ...
 
 

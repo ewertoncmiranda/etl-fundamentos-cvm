@@ -19,17 +19,20 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioExecucaoSql,
     RepositorioFatoContabilSql,
     RepositorioIndicadorSql,
+    RepositorioMetricasMercadoSql,
     RepositorioSeriesSql,
     RepositorioUniversoSql,
 )
 from app.adaptadores.persistencia.unidade_de_trabalho import UnidadeDeTrabalho
 from app.adaptadores.persistencia.verificador_schema import VerificadorDeSchema
+from app.aplicacao.atualizar_metricas_mercado import AtualizarMetricasMercado
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
 from app.aplicacao.carregar_series_historicas import CarregarSeriesHistoricas
 from app.aplicacao.carregar_ttm import CarregarTtm
 from app.config.database_config import ConfiguracaoDeBanco
 from app.config.settings import Settings
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
+from app.dominio.calculo.calculadora_multiplos_mercado import CalculadoraMultiplosMercado
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.plano_contas.classificador import ClassificadorDePlano
 from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
@@ -51,6 +54,7 @@ def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamento
         montador=_montar_indicadores(),
         publicador=_montar_publicador(settings, logger),
         logger=logger,
+        atualizador_mercado=_montar_metricas_mercado(banco, logger),
     )
 
 
@@ -67,6 +71,7 @@ def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeries
         repositorio_series=RepositorioSeriesSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
+        atualizador_mercado=_montar_metricas_mercado(banco, logger),
     )
 
 
@@ -82,6 +87,15 @@ def montar_carga_ttm(settings: Settings, logger: Logger) -> CarregarTtm:
         repositorio_execucao=RepositorioExecucaoSql(logger),
         montador_ttm=MontadorTtm(),
         montador_indicadores=_montar_indicadores(),
+        logger=logger,
+    )
+
+
+def _montar_metricas_mercado(banco, logger: Logger) -> AtualizarMetricasMercado:
+    return AtualizarMetricasMercado(
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio=RepositorioMetricasMercadoSql(),
+        calculadora=CalculadoraMultiplosMercado(),
         logger=logger,
     )
 
