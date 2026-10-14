@@ -165,3 +165,18 @@ class TestCalculadoraIndicadores:
         )
 
         assert derivados["fluxo_caixa_livre"] == Decimal("600")
+
+    def test_ebitda_soma_ebit_com_da(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("8000000000"),
+                "depreciacao_amortizacao": Decimal("1500000000"),
+            }
+        )
+
+        assert derivados["ebitda"] == Decimal("9500000000")
+
+    def test_ebitda_none_quando_da_ausente(self):
+        derivados = CalculadoraIndicadores().calcular({"ebit": Decimal("5000")})
+
+        assert derivados["ebitda"] is None

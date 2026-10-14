@@ -166,6 +166,16 @@ _SO_GERAL = (
         planos=(PLANO_GERAL,),
         observacao="1.01.03 no banco e creditos com carteiras de emprestimos (outra natureza)",
     ),
+    # D5: D&A — sub-contas da DFC_MI sao ST_CONTA_FIXA='N' (texto livre); matching
+    # por fragmento de rotulo. Insumo do EBITDA e do FCL ajustado.
+    RegraConta(
+        metrica="depreciacao_amortizacao",
+        demonstracao=DFC_MI,
+        fragmentos=("deprecia", "amortiza"),
+        planos=(PLANO_GERAL,),
+        somar=True,
+        observacao="DFC_MI sub-contas texto livre; somamos todas com 'deprecia' ou 'amortiza'",
+    ),
 )
 
 REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL

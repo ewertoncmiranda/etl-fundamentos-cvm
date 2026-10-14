@@ -114,6 +114,7 @@ class MontadorDeIndicadores:
             estoques=insumos.get("estoques"),
             contas_a_receber=insumos.get("contas_a_receber"),
             despesas_pessoal=insumos.get("despesas_pessoal"),
+            depreciacao_amortizacao=insumos.get("depreciacao_amortizacao"),
             lpa=derivados["lpa"],
             vpa=derivados["vpa"],
             roe=derivados["roe"],
@@ -121,6 +122,7 @@ class MontadorDeIndicadores:
             margem_liquida=derivados["margem_liquida"],
             divida_liquida=derivados["divida_liquida"],
             fluxo_caixa_livre=derivados["fluxo_caixa_livre"],
+            ebitda=derivados["ebitda"],
             cobertura=cobertura,
         )
 

@@ -88,6 +88,8 @@ class Ticker:
     cnpj: str
     tipo_valor_mobiliario: str | None = None
     mercado: str | None = None
+    # G1: FRE acionista_significativo — % de acoes em circulacao livre
+    free_float: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +190,8 @@ class Indicadores:
     contas_a_receber: Decimal | None = None
     # E2: DVA 7.08.01 — remuneracao do trabalho; eficiencia de pessoal
     despesas_pessoal: Decimal | None = None
+    # D5: DFC_MI fragmento 'deprecia'+'amortiza' — sub-contas nao padronizadas
+    depreciacao_amortizacao: Decimal | None = None
 
     # derivados
     lpa: Decimal | None = None
@@ -197,6 +201,7 @@ class Indicadores:
     margem_liquida: Decimal | None = None
     divida_liquida: Decimal | None = None
     fluxo_caixa_livre: Decimal | None = None
+    ebitda: Decimal | None = None
 
     fonte: str = "CVM"
     cobertura: dict = field(default_factory=dict)

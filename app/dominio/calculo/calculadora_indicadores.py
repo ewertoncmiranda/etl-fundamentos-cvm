@@ -47,6 +47,7 @@ class CalculadoraIndicadores:
         minoritarios = insumos.get("participacao_nao_controladores") or Decimal(0)
         receita = insumos.get("receita_liquida")
         ebit = insumos.get("ebit")
+        da = insumos.get("depreciacao_amortizacao")
         divida = insumos.get("divida_bruta")
         caixa = insumos.get("caixa_equivalentes")
         fco = insumos.get("fluxo_caixa_operacional")
@@ -70,6 +71,10 @@ class CalculadoraIndicadores:
             # extraivel da CVM; fci ja vem negativo.
             "fluxo_caixa_livre": (
                 None if fco is None or fci is None else Decimal(fco) + Decimal(fci)
+            ),
+            # D&A vem positivo da DFC_MI (ajuste de nao-caixa adicionado de volta)
+            "ebitda": (
+                None if ebit is None or da is None else Decimal(ebit) + Decimal(da)
             ),
         }
         return derivados

@@ -115,6 +115,7 @@ class RepositorioCadastroSql:
                 "tipo_valor_mobiliario": t.tipo_valor_mobiliario,
                 "mercado": t.mercado,
                 "ativo": True,
+                "free_float": t.free_float,
             }
             for t in tickers
         ]
@@ -122,7 +123,7 @@ class RepositorioCadastroSql:
             db,
             TickerEntity,
             registros,
-            ("cnpj", "tipo_valor_mobiliario", "mercado", "ativo"),
+            ("cnpj", "tipo_valor_mobiliario", "mercado", "ativo", "free_float"),
         )
 
 
@@ -199,6 +200,7 @@ class RepositorioIndicadorSql:
         "estoques",
         "contas_a_receber",
         "despesas_pessoal",
+        "depreciacao_amortizacao",
         "lpa",
         "vpa",
         "roe",
@@ -206,6 +208,7 @@ class RepositorioIndicadorSql:
         "margem_liquida",
         "divida_liquida",
         "fluxo_caixa_livre",
+        "ebitda",
         "fonte",
         "tipo_doc",
         "grupo",
@@ -238,6 +241,7 @@ class RepositorioIndicadorSql:
                 "estoques": i.estoques,
                 "contas_a_receber": i.contas_a_receber,
                 "despesas_pessoal": i.despesas_pessoal,
+                "depreciacao_amortizacao": i.depreciacao_amortizacao,
                 "lpa": i.lpa,
                 "vpa": i.vpa,
                 "roe": i.roe,
@@ -245,6 +249,7 @@ class RepositorioIndicadorSql:
                 "margem_liquida": i.margem_liquida,
                 "divida_liquida": i.divida_liquida,
                 "fluxo_caixa_livre": i.fluxo_caixa_livre,
+                "ebitda": i.ebitda,
                 "fonte": i.fonte,
                 "tipo_doc": i.tipo_doc,
                 "grupo": i.grupo,

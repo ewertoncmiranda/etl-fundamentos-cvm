@@ -25,9 +25,13 @@ class RegraConta:
     planos: tuple[str, ...] = TODOS_OS_PLANOS
     somar: bool = False
     observacao: str = ""
+    # Matching parcial para contas ST_CONTA_FIXA='N' (texto livre por empresa),
+    # ex.: sub-contas de D&A na DFC_MI onde o rotulo nao e padronizado pela CVM.
+    fragmentos: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "rotulos", tuple(normalizar(r) for r in self.rotulos))
+        object.__setattr__(self, "fragmentos", tuple(normalizar(f) for f in self.fragmentos))
 
     def vale_para(self, plano: str) -> bool:
         return plano in self.planos

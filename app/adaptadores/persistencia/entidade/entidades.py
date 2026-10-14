@@ -61,6 +61,7 @@ class TickerEntity(MixinCarimbo, Base):
     tipo_valor_mobiliario: Mapped[str | None] = mapped_column(String(60))
     mercado: Mapped[str | None] = mapped_column(String(40))
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    free_float: Mapped[Numeric | None] = mapped_column(Numeric(6, 2))
 
 
 class FatoContabilEntity(MixinCarimbo, Base):
@@ -143,6 +144,7 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     estoques: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     contas_a_receber: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     despesas_pessoal: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    depreciacao_amortizacao: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     lpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
     vpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
@@ -151,6 +153,7 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     margem_liquida: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
     divida_liquida: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     fluxo_caixa_livre: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    ebitda: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     fonte: Mapped[str] = mapped_column(String(20), nullable=False, default="CVM")
     tipo_doc: Mapped[str] = mapped_column(String(5), nullable=False)

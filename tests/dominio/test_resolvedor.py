@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.dominio.modelo import BPP, DRE
+from app.dominio.modelo import BPP, DFC_MI, DRE
 from app.dominio.plano_contas.regra import RegraConta
 from app.dominio.plano_contas.resolvedor import (
     ResolucaoPorCodigo,
+    ResolucaoPorFragmentoRotulo,
     ResolucaoPorRotulo,
     ResolvedorDeContas,
 )
@@ -110,6 +111,37 @@ class TestResolvedorDeContas:
         resolvido = ResolvedorDeContas().resolver(regra, linhas)
 
         assert resolvido.cd_conta == "3.11"
+
+    def test_fragmento_rotulo_soma_contas_nao_fixas_por_conteudo(self):
+        """D&A na DFC_MI e texto livre (ST_CONTA_FIXA='N'); fragmento 'deprecia'
+        e 'amortiza' localiza e soma sem depender de CD_CONTA ou rotulo exato."""
+        regra = RegraConta(
+            metrica="depreciacao_amortizacao",
+            demonstracao=DFC_MI,
+            fragmentos=("deprecia", "amortiza"),
+            somar=True,
+        )
+        linhas_dfc = (
+            linha("6.01.01.01", "Depreciação e Amortização de PP&E", "800", DFC_MI, conta_fixa=False),
+            linha("6.01.01.02", "Amortização de Intangíveis", "200", DFC_MI, conta_fixa=False),
+            linha("6.01.01.03", "Variação de Estoques", "50", DFC_MI, conta_fixa=False),
+        )
+
+        resolvido = ResolvedorDeContas().resolver(regra, linhas_dfc)
+
+        assert resolvido.valor == Decimal("1000")
+        assert resolvido.estrategia == "fragmento-rotulo"
+
+    def test_fragmento_rotulo_nao_interfere_em_regra_sem_fragmentos(self):
+        """Regra que so tem rotulos/codigos nao deve ser afetada pela nova estrategia."""
+        resolvido = ResolvedorDeContas().resolver(REGRA_PL, ())
+
+        assert resolvido.estrategia == "ausente"
+
+    def test_fragmento_rotulo_ignorado_quando_vazio(self):
+        regra = RegraConta(metrica="x", demonstracao=DFC_MI)
+        achadas = ResolucaoPorFragmentoRotulo().localizar(regra, ())
+        assert achadas == []
 
     def test_ordem_das_estrategias_e_respeitada(self, linhas_wege3):
         """Invertendo a ordem, o codigo ganha do rotulo - prova que o
