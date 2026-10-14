@@ -26,6 +26,7 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioFatoContabilSql,
     RepositorioIdentidadeSql,
     RepositorioIndicadorSql,
+    RepositorioMetricasMercadoSql,
     RepositorioOpcaoSql,
     RepositorioProventoSql,
     RepositorioSeriesSql,
@@ -37,6 +38,7 @@ from app.adaptadores.persistencia.verificador_schema import (
     COLUNAS_V16_FUNDAMENTOS,
     VerificadorDeSchema,
 )
+from app.aplicacao.atualizar_metricas_mercado import AtualizarMetricasMercado
 from app.aplicacao.calcular_liquidez import CalcularLiquidez
 from app.aplicacao.carregar_comunicados import CarregarComunicados
 from app.aplicacao.carregar_fundamentos import CarregarFundamentos
@@ -48,6 +50,7 @@ from app.aplicacao.inferir_eventos_corporativos import InferirEventosCorporativo
 from app.config.database_config import ConfiguracaoDeBanco
 from app.config.settings import Settings
 from app.dominio.calculo.calculadora_indicadores import CalculadoraIndicadores
+from app.dominio.calculo.calculadora_multiplos_mercado import CalculadoraMultiplosMercado
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.plano_contas.classificador import ClassificadorDePlano
 from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
@@ -69,6 +72,7 @@ def montar_caso_de_uso(settings: Settings, logger: Logger) -> CarregarFundamento
         montador=_montar_indicadores(),
         publicador=_montar_publicador(settings, logger),
         logger=logger,
+        atualizador_mercado=_montar_metricas_mercado(banco, logger),
         repositorio_identidade=RepositorioIdentidadeSql(),
     )
 
@@ -86,6 +90,7 @@ def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeries
         repositorio_series=RepositorioSeriesSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
         logger=logger,
+        atualizador_mercado=_montar_metricas_mercado(banco, logger),
         repositorio_identidade=RepositorioIdentidadeSql(),
         verificador_de_schema=VerificadorDeSchema(
             ("cotacao_b3_diaria", "opcao_b3_diaria", "etl_execucao"),
@@ -224,6 +229,15 @@ def montar_conciliacao(settings: Settings, logger: Logger) -> ConciliarPrecos:
         unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
         repositorio=RepositorioConciliacaoSql(),
         repositorio_execucao=RepositorioExecucaoSql(logger),
+        logger=logger,
+    )
+
+
+def _montar_metricas_mercado(banco, logger: Logger) -> AtualizarMetricasMercado:
+    return AtualizarMetricasMercado(
+        unidade_de_trabalho=UnidadeDeTrabalho(banco.fabrica_de_sessao),
+        repositorio=RepositorioMetricasMercadoSql(),
+        calculadora=CalculadoraMultiplosMercado(),
         logger=logger,
     )
 

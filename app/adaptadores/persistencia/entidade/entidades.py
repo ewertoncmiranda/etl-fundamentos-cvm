@@ -49,6 +49,8 @@ class EmpresaEntity(MixinCarimbo, Base):
     denominacao: Mapped[str] = mapped_column(String(200), nullable=False)
     setor: Mapped[str | None] = mapped_column(String(60))
     plano_contas: Mapped[str] = mapped_column(String(20), nullable=False, default="GERAL")
+    cnae: Mapped[str | None] = mapped_column(String(7))
+    grupo_economico: Mapped[str | None] = mapped_column(String(200))
     situacao_registro: Mapped[str | None] = mapped_column(String(30))
     data_constituicao: Mapped[Date | None] = mapped_column(Date)
     uf_municipio: Mapped[str | None] = mapped_column(String(2))
@@ -63,6 +65,7 @@ class TickerEntity(MixinCarimbo, Base):
     isin: Mapped[str | None] = mapped_column(String(12))
     mercado: Mapped[str | None] = mapped_column(String(40))
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    free_float: Mapped[Numeric | None] = mapped_column(Numeric(6, 2))
 
 
 class FatoContabilEntity(MixinCarimbo, Base):
@@ -149,6 +152,13 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     fco_bruto: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     capex: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     acoes_ex_tesouraria: Mapped[int | None] = mapped_column(BigInteger)
+    resultado_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    passivo_nao_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    impostos_dva: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    estoques: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    contas_a_receber: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    despesas_pessoal: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    depreciacao_amortizacao: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     lpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
     vpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
@@ -157,6 +167,17 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     margem_liquida: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
     divida_liquida: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     fluxo_caixa_livre: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    ebitda: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    cobertura_juros: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    liquidez_corrente: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
+    liquidez_seca: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
+    dso: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
+    graham_number: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
+    # I7/I4: multiplos de mercado — populados por AtualizarMetricasMercado, nao
+    # pelo fluxo contabil; ficam NULL ate que a serie historica esteja disponivel
+    pl: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
+    ev_ebitda: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
+    pl_setorial_mediana: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
 
     fonte: Mapped[str] = mapped_column(String(20), nullable=False, default="CVM")
     tipo_doc: Mapped[str] = mapped_column(String(5), nullable=False)
@@ -286,6 +307,11 @@ class OpcaoB3DiariaEntity(MixinCarimbo, Base):
     tipo_opcao: Mapped[str | None] = mapped_column(String(4))
     status_validacao: Mapped[str | None] = mapped_column(String(20))
     motivo_rejeicao: Mapped[str | None] = mapped_column(String(80))
+    # C1 Phase-0: adicionado por V36 — coluna opcional ate a migracao ser aplicada
+    indice_correcao: Mapped[str | None] = mapped_column(String(1))
+    # C2 Phase-2: adicionado por V37 — colunas opcionais ate a migracao ser aplicada
+    melhor_oferta_compra: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    melhor_oferta_venda: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
 
 
 class ProventoContabilEntity(MixinCarimbo, Base):

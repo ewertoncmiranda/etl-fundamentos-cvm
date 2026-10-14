@@ -6,7 +6,7 @@ from app.adaptadores.b3.leitor_cotahist import LeitorCotahist
 from app.dominio.serie_historica import resumir_validacao_opcoes
 
 
-def _linha_cotahist(simbolo: str = "PETR4", mercado: str = "010") -> str:
+def _linha_cotahist(simbolo: str = "PETR4", mercado: str = "010", nome_resumido: str = "") -> str:
     linha = [" "] * 245
 
     def preencher(inicio: int, fim: int, valor: str) -> None:
@@ -18,6 +18,9 @@ def _linha_cotahist(simbolo: str = "PETR4", mercado: str = "010") -> str:
     preencher(10, 12, "02")
     linha[12:24] = list(simbolo.ljust(12))
     preencher(24, 27, mercado)
+    # NOMRES (pos 28-39, 1-based = 27:39 0-based)
+    if nome_resumido:
+        linha[27:39] = list(nome_resumido.ljust(12)[:12])
     preencher(56, 69, "4880")
     preencher(69, 82, "4887")
     preencher(82, 95, "4792")
@@ -44,6 +47,17 @@ def test_parseia_posicoes_e_centavos_do_registro_real():
     assert candle.volume_financeiro == Decimal("1660839773")
 
 
+def test_candle_nome_resumido_preenchido():
+    linhas = [_linha_cotahist(nome_resumido="PETROBRAS PN")]
+    candle = LeitorCotahist().ler_linhas(linhas, {"PETR4"})[0]
+    assert candle.nome_resumido == "PETROBRAS PN"
+
+
+def test_candle_nome_resumido_vazio_retorna_none():
+    candle = LeitorCotahist().ler_linhas([_linha_cotahist()], {"PETR4"})[0]
+    assert candle.nome_resumido is None
+
+
 def test_filtra_ticker_fora_do_universo_e_mercado_fracionario():
     leitor = LeitorCotahist()
     assert leitor.ler_linhas([_linha_cotahist("VALE3")], {"PETR4"}) == []
@@ -62,12 +76,21 @@ def _linha_opcao(
     bdi: str = "00",
     vencimento: str = "20261120",
     strike_centavos: str = "3200",
+    indice_correcao: str = "0",
+    melhor_oferta_compra: str = "",
+    melhor_oferta_venda: str = "",
 ) -> str:
     linha = _linha_cotahist(simbolo)
     linha = _com(linha, 10, 12, bdi)
     linha = _com(linha, 24, 27, mercado)
     linha = _com(linha, 188, 201, strike_centavos)
+    # INDOPC (pos 202, 1-based = pos 201, 0-based): 1 char
+    linha = _com(linha, 201, 202, indice_correcao)
     linha = _com(linha, 202, 210, vencimento)
+    if melhor_oferta_compra:
+        linha = _com(linha, 121, 134, melhor_oferta_compra)
+    if melhor_oferta_venda:
+        linha = _com(linha, 134, 147, melhor_oferta_venda)
     return linha
 
 
@@ -115,6 +138,35 @@ def test_rejeita_registro_de_cotacao_com_largura_incorreta():
     with pytest.raises(ValueError, match="245"):
         LeitorCotahist().ler_linhas([_linha_cotahist()[:-1]], {"PETR4"})
 
+
+# --- opcoes: C1/C2 ---
+
+def test_indice_correcao_preenchido_e_lido():
+    (o,) = LeitorCotahist().ler_opcoes_linhas([_linha_opcao(indice_correcao="1")])
+    assert o.status_validacao == "VALIDA"
+    assert o.indice_correcao == "1"
+
+
+def test_indice_correcao_vazio_retorna_none():
+    (o,) = LeitorCotahist().ler_opcoes_linhas([_linha_opcao(indice_correcao=" ")])
+    assert o.indice_correcao is None
+
+
+def test_parseia_bid_ask_opcao():
+    (o,) = LeitorCotahist().ler_opcoes_linhas(
+        [_linha_opcao(melhor_oferta_compra="2190", melhor_oferta_venda="2210")]
+    )
+    assert o.melhor_oferta_compra == Decimal("21.90")
+    assert o.melhor_oferta_venda == Decimal("22.10")
+
+
+def test_bid_ask_zerado_retorna_none():
+    (o,) = LeitorCotahist().ler_opcoes_linhas([_linha_opcao()])
+    assert o.melhor_oferta_compra is None
+    assert o.melhor_oferta_venda is None
+
+
+# --- opcoes: validacao TPMERC ---
 
 def test_opcao_real_usa_tipo_de_mercado_e_deriva_ativo_objeto():
     call, put = LeitorCotahist().ler_opcoes_linhas([
@@ -184,3 +236,23 @@ def test_resume_validacao_de_opcoes_por_motivo_e_prefixo():
         "simbolo_sem_padrao_opcao": 1,
     }
     assert resumo["prefixos_suspeitos"] == {"BOVA": 1, "HGRE": 1}
+
+
+# --- C4: moeda_referencia (MODREF pos 53-56, 1-based) ---
+
+def _linha_cotahist_com_modref(modref: str) -> str:
+    linha = list(_linha_cotahist())
+    # MODREF: pos 53-56 (1-based) = indices 52:56 (0-based), 4 chars
+    linha[52:56] = list(modref.ljust(4)[:4])
+    return "".join(linha)
+
+
+def test_candle_moeda_referencia_usd_para_bdr():
+    linhas = [_linha_cotahist_com_modref("USD ")]
+    candle = LeitorCotahist().ler_linhas(linhas, {"PETR4"})[0]
+    assert candle.moeda_referencia == "USD"
+
+
+def test_candle_moeda_referencia_padrao_brl():
+    candle = LeitorCotahist().ler_linhas([_linha_cotahist()], {"PETR4"})[0]
+    assert candle.moeda_referencia == "BRL"

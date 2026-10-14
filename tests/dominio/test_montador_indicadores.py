@@ -277,6 +277,109 @@ class TestCalculadoraIndicadores:
 
         assert derivados["fluxo_caixa_livre"] == Decimal("600")
 
+    def test_ebitda_soma_ebit_com_da(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("8000000000"),
+                "depreciacao_amortizacao": Decimal("1500000000"),
+            }
+        )
+
+        assert derivados["ebitda"] == Decimal("9500000000")
+
+    def test_ebitda_none_quando_da_ausente(self):
+        derivados = CalculadoraIndicadores().calcular({"ebit": Decimal("5000")})
+
+        assert derivados["ebitda"] is None
+
+    def test_cobertura_juros_calculada_quando_resultado_financeiro_negativo(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("1000"),
+                "resultado_financeiro": Decimal("-200"),
+            }
+        )
+
+        assert derivados["cobertura_juros"] == Decimal(5)
+
+    def test_cobertura_juros_none_quando_resultado_financeiro_positivo(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("1000"),
+                "resultado_financeiro": Decimal("50"),
+            }
+        )
+
+        assert derivados["cobertura_juros"] is None
+
+    def test_liquidez_corrente_e_seca(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ativo_circulante": Decimal("3000"),
+                "passivo_circulante": Decimal("1500"),
+                "estoques": Decimal("600"),
+            }
+        )
+
+        assert derivados["liquidez_corrente"] == Decimal(2)
+        assert derivados["liquidez_seca"] == Decimal("1.6")
+
+    def test_liquidez_seca_none_sem_estoques(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ativo_circulante": Decimal("3000"),
+                "passivo_circulante": Decimal("1500"),
+            }
+        )
+
+        assert derivados["liquidez_corrente"] == Decimal(2)
+        assert derivados["liquidez_seca"] is None
+
+    def test_dso_prazo_medio_recebimento(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "contas_a_receber": Decimal("365"),
+                "receita_liquida": Decimal("3650"),
+            }
+        )
+
+        assert derivados["dso"] == Decimal("36.5")
+
+    def test_graham_number_positivo(self):
+        import math
+
+        from app.dominio.calculo.calculadora_indicadores import _graham_number
+
+        result = _graham_number(Decimal("2"), Decimal("8"))
+        esperado = Decimal(str(math.sqrt(22.5 * 2 * 8))).quantize(Decimal("0.0001"))
+        assert result == esperado
+
+    def test_graham_number_none_para_lpa_negativo(self):
+        from app.dominio.calculo.calculadora_indicadores import _graham_number
+
+        assert _graham_number(Decimal("-1"), Decimal("8")) is None
+        assert _graham_number(Decimal("2"), None) is None
+
+    def test_roic_usa_aliquota_efetiva_quando_impostos_dva_disponivel(self):
+        derivados = CalculadoraIndicadores().calcular(
+            {
+                "ebit": Decimal("1000"),
+                "patrimonio_liquido": Decimal("3000"),
+                "divida_bruta": Decimal("1000"),
+                "caixa_equivalentes": Decimal("500"),
+                "lucro_liquido": Decimal("600"),
+                "impostos_dva": Decimal("-300"),
+            }
+        )
+
+        # aliquota_efetiva = 300 / (600 + 300) = 0.333...
+        # nopat = 1000 * (1 - 0.333) = 666.67; capital = 3000 + 1000 - 500 = 3500
+        # roic = 666.67 / 3500 * 100 ≈ 19.05
+        assert derivados["roic"] is not None
+        # com aliquota nominal (0.34): nopat=660; roic=660/3500*100=18.857
+        # com aliquota efetiva (0.333): nopat~666.67; roic~19.05
+        assert derivados["roic"] > Decimal("18.9")  # confirma que usou efetiva, nao nominal
+
     def test_roic_segue_convencao_nominal_sobre_capital_do_controlador(self):
         derivados = CalculadoraIndicadores().calcular(
             {

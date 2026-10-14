@@ -6,7 +6,30 @@ on:
       - 'feature**'
 
 jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # -m "not externo" mantem fora o teste que bate no Fundamentus: site de
+      # terceiro fora do ar nao pode quebrar o build.
+      - name: Tests
+        env:
+          ENVIRONMENT: local
+        run: pytest tests/ -v -m "not externo"
+
   create-pr:
+    needs: testes
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -42,6 +65,6 @@ jobs:
               head: branch,
               base: 'develop',
               title: `${branch}`,
-              body: 'PR aberto automaticamente pelo workflow.',
+              body: 'PR aberto automaticamente pelo workflow apos testes passarem.',
             });
             core.info(`PR criado: ${pr.html_url}`);

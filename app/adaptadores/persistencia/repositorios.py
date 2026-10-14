@@ -32,8 +32,10 @@ from app.adaptadores.persistencia.entidade.entidades import (
     IndicadorFundamentalistaEntity,
     OpcaoB3DiariaEntity,
     ProventoContabilEntity,
+    SerieHistoricaEntity,
     TickerEntity,
 )
+from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
 from app.dominio.comunicado import Comunicado
 from app.dominio.identidade import Identidade
 from app.dominio.modelo import (
@@ -144,6 +146,8 @@ class RepositorioCadastroSql:
                 "denominacao": e.denominacao or e.cnpj,
                 "setor": e.setor,
                 "plano_contas": e.plano_contas,
+                "cnae": e.cnae,
+                "grupo_economico": e.grupo_economico,
                 "situacao_registro": e.situacao_registro,
                 "data_constituicao": e.data_constituicao,
                 "uf_municipio": e.uf_municipio,
@@ -156,6 +160,7 @@ class RepositorioCadastroSql:
             registros,
             (
                 "cd_cvm", "denominacao", "setor", "plano_contas",
+                "cnae", "grupo_economico",
                 "situacao_registro", "data_constituicao", "uf_municipio",
             ),
         )
@@ -169,6 +174,7 @@ class RepositorioCadastroSql:
                 "isin": t.isin,
                 "mercado": t.mercado,
                 "ativo": True,
+                "free_float": t.free_float,
             }
             for t in tickers
         ]
@@ -176,7 +182,7 @@ class RepositorioCadastroSql:
             db,
             TickerEntity,
             registros,
-            ("cnpj", "tipo_valor_mobiliario", "isin", "mercado", "ativo"),
+            ("cnpj", "tipo_valor_mobiliario", "isin", "mercado", "ativo", "free_float"),
         )
 
     def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
@@ -340,6 +346,15 @@ class RepositorioIndicadorSql:
         "fco_bruto",
         "capex",
         "acoes_ex_tesouraria",
+        "resultado_financeiro",
+        "passivo_nao_circulante",
+        "impostos_dva",
+        "estoques",
+        "contas_a_receber",
+        "despesas_pessoal",
+        "depreciacao_amortizacao",
+        "ativo_circulante",
+        "passivo_circulante",
         "lpa",
         "vpa",
         "roe",
@@ -347,6 +362,12 @@ class RepositorioIndicadorSql:
         "margem_liquida",
         "divida_liquida",
         "fluxo_caixa_livre",
+        "ebitda",
+        "cobertura_juros",
+        "liquidez_corrente",
+        "liquidez_seca",
+        "dso",
+        "graham_number",
         "fonte",
         "tipo_doc",
         "grupo",
@@ -379,6 +400,15 @@ class RepositorioIndicadorSql:
                 "fco_bruto": i.fco_bruto,
                 "capex": i.capex,
                 "acoes_ex_tesouraria": i.acoes_ex_tesouraria,
+                "resultado_financeiro": i.resultado_financeiro,
+                "passivo_nao_circulante": i.passivo_nao_circulante,
+                "impostos_dva": i.impostos_dva,
+                "estoques": i.estoques,
+                "contas_a_receber": i.contas_a_receber,
+                "despesas_pessoal": i.despesas_pessoal,
+                "depreciacao_amortizacao": i.depreciacao_amortizacao,
+                "ativo_circulante": i.ativo_circulante,
+                "passivo_circulante": i.passivo_circulante,
                 "lpa": i.lpa,
                 "vpa": i.vpa,
                 "roe": i.roe,
@@ -386,6 +416,12 @@ class RepositorioIndicadorSql:
                 "margem_liquida": i.margem_liquida,
                 "divida_liquida": i.divida_liquida,
                 "fluxo_caixa_livre": i.fluxo_caixa_livre,
+                "ebitda": i.ebitda,
+                "cobertura_juros": i.cobertura_juros,
+                "liquidez_corrente": i.liquidez_corrente,
+                "liquidez_seca": i.liquidez_seca,
+                "dso": i.dso,
+                "graham_number": i.graham_number,
                 "fonte": i.fonte,
                 "tipo_doc": i.tipo_doc,
                 "grupo": i.grupo,
@@ -582,6 +618,8 @@ class RepositorioOpcaoSql:
         "status_validacao",
         "motivo_rejeicao",
     )
+    # C1/C2: adicionadas por V36/V37; opcionais ate a migracao chegar
+    COLUNAS_OPT_EXTRAS = ("indice_correcao", "melhor_oferta_compra", "melhor_oferta_venda")
 
     def _colunas_opcionais_existentes(self, db: Any) -> set[str]:
         """OPT-INFRA-1 ainda pode nao existir no banco.
@@ -590,6 +628,7 @@ class RepositorioOpcaoSql:
         tabela antiga nao continuar contaminada. Quando as colunas existem, o
         ETL passa a preservar motivo estruturado sem mudar o start unico.
         """
+        todas = list(self.COLUNAS_OPT_VALIDACAO) + list(self.COLUNAS_OPT_EXTRAS)
         try:
             schema = db.execute(text("SELECT DATABASE()")).scalar()
             if not schema:
@@ -600,7 +639,7 @@ class RepositorioOpcaoSql:
                     "WHERE table_schema = :schema AND table_name = 'opcao_b3_diaria' "
                     "AND column_name IN :colunas"
                 ).bindparams(bindparam("colunas", expanding=True)),
-                {"schema": schema, "colunas": list(self.COLUNAS_OPT_VALIDACAO)},
+                {"schema": schema, "colunas": todas},
             )
             return {linha[0] for linha in linhas}
         except Exception:
@@ -612,8 +651,9 @@ class RepositorioOpcaoSql:
         opcoes_para_gravar = list(opcoes) if schema_com_validacao else [
             o for o in opcoes if o.status_validacao == "VALIDA"
         ]
-        registros = [
-            {
+        registros = []
+        for o in opcoes_para_gravar:
+            reg: dict[str, Any] = {
                 "simbolo": o.simbolo,
                 "bdi": o.bdi,
                 "data_pregao": o.data_pregao,
@@ -629,15 +669,18 @@ class RepositorioOpcaoSql:
                 "volume_financeiro": o.volume_financeiro,
                 "fator_cotacao": o.fator_cotacao,
                 "isin": o.isin,
-                **({
+            }
+            if schema_com_validacao:
+                reg.update({
                     "ativo_objeto": o.ativo_objeto,
                     "tipo_opcao": o.tipo_opcao,
                     "status_validacao": o.status_validacao,
                     "motivo_rejeicao": o.motivo_rejeicao,
-                } if schema_com_validacao else {}),
-            }
-            for o in opcoes_para_gravar
-        ]
+                })
+            for col in self.COLUNAS_OPT_EXTRAS:
+                if col in colunas_opcionais:
+                    reg[col] = getattr(o, col, None)
+            registros.append(reg)
         colunas_atualizaveis = [
             "bdi", "data_vencimento", "preco_exercicio",
             "abertura", "maxima", "minima", "fechamento", "preco_medio",
@@ -646,6 +689,9 @@ class RepositorioOpcaoSql:
         ]
         if schema_com_validacao:
             colunas_atualizaveis.extend(self.COLUNAS_OPT_VALIDACAO)
+        for col in self.COLUNAS_OPT_EXTRAS:
+            if col in colunas_opcionais:
+                colunas_atualizaveis.append(col)
         return _upsert(
             db,
             OpcaoB3DiariaEntity,
@@ -684,6 +730,98 @@ class RepositorioProventoSql:
                 "acoes_ex_tesouraria", "por_acao", "cobertura_json",
             ),
         )
+
+
+class RepositorioMetricasMercadoSql:
+    """Le insumos contabeis + cotacoes e grava P/L (I4) e EV/EBITDA (I7).
+
+    As tres queries usam bindparam(expanding=True) para IN dinamico, que e a
+    forma correta no SQLAlchemy 2 com dialeto MySQL.
+    """
+
+    def buscar_insumos_de_mercado(
+        self, db: Any, simbolos: list[str], ano: int
+    ) -> list[InsumoMercado]:
+        from decimal import Decimal as _D
+
+        from sqlalchemy import bindparam, text
+
+        resultado = db.execute(
+            text(
+                "SELECT i.simbolo, i.periodo, i.lpa, i.ebitda, i.divida_liquida, "
+                "i.acoes_ex_tesouraria, e.cnae "
+                "FROM indicador_fundamentalista i "
+                "LEFT JOIN cvm_empresa e ON i.cnpj = e.cnpj "
+                "WHERE i.simbolo IN :simbolos "
+                "AND YEAR(i.periodo) = :ano "
+                "AND i.tipo_periodo = 'ANUAL'"
+            ).bindparams(bindparam("simbolos", expanding=True)),
+            {"simbolos": list(simbolos), "ano": ano},
+        )
+        return [
+            InsumoMercado(
+                simbolo=row[0],
+                periodo=row[1],
+                lpa=_D(str(row[2])) if row[2] is not None else None,
+                ebitda=_D(str(row[3])) if row[3] is not None else None,
+                divida_liquida=_D(str(row[4])) if row[4] is not None else None,
+                acoes_ex_tesouraria=int(row[5]) if row[5] is not None else None,
+                cnae=row[6],
+            )
+            for row in resultado
+        ]
+
+    def buscar_precos_na_data(
+        self, db: Any, simbolos: list[str], data_referencia: Any
+    ) -> dict[str, Any]:
+        from decimal import Decimal as _D
+
+        from sqlalchemy import bindparam, text
+
+        resultado = db.execute(
+            text(
+                "SELECT s1.simbolo, s1.fechamento "
+                "FROM serie_historica s1 "
+                "INNER JOIN ("
+                "    SELECT simbolo, MAX(data_pregao) AS ultima_data "
+                "    FROM serie_historica "
+                "    WHERE simbolo IN :simbolos "
+                "    AND data_pregao <= :data_ref "
+                "    AND fechamento IS NOT NULL "
+                "    GROUP BY simbolo"
+                ") s2 ON s1.simbolo = s2.simbolo AND s1.data_pregao = s2.ultima_data"
+            ).bindparams(bindparam("simbolos", expanding=True)),
+            {"simbolos": list(simbolos), "data_ref": data_referencia},
+        )
+        return {row[0]: _D(str(row[1])) for row in resultado}
+
+    def atualizar_metricas_mercado(self, db: Any, metricas: list[MetricaMercado]) -> int:
+        from sqlalchemy import text
+
+        total = 0
+        for m in metricas:
+            if m.pl is None and m.ev_ebitda is None and m.pl_setorial_mediana is None:
+                continue
+            db.execute(
+                text(
+                    "UPDATE indicador_fundamentalista "
+                    "SET pl = :pl, ev_ebitda = :ev, pl_setorial_mediana = :pl_set "
+                    "WHERE simbolo = :simbolo AND periodo = :periodo"
+                ),
+                {
+                    "pl": float(m.pl) if m.pl is not None else None,
+                    "ev": float(m.ev_ebitda) if m.ev_ebitda is not None else None,
+                    "pl_set": (
+                        float(m.pl_setorial_mediana)
+                        if m.pl_setorial_mediana is not None
+                        else None
+                    ),
+                    "simbolo": m.simbolo,
+                    "periodo": m.periodo,
+                },
+            )
+            total += 1
+        return total
 
 
 class RepositorioExecucaoSql:

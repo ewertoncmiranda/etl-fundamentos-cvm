@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any, Protocol
 
+from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
 from app.dominio.comunicado import Comunicado
 from app.dominio.modelo import (
     ComposicaoCapital,
@@ -120,6 +121,25 @@ class RepositorioComunicado(Protocol):
         Documento ja gravado na mesma versao (ou mais nova) nao conta: e o que
         permite publicar evento so do que mudou de fato.
         """
+        ...
+
+
+class RepositorioMetricasMercado(Protocol):
+    """Le insumos contabeis + cotacoes e grava multiplos de mercado (I4 e I7)."""
+
+    def buscar_insumos_de_mercado(
+        self, db: Any, simbolos: list[str], ano: int
+    ) -> list[InsumoMercado]:
+        ...
+
+    def buscar_precos_na_data(
+        self, db: Any, simbolos: list[str], data_referencia: date
+    ) -> dict[str, Any]:
+        ...
+
+    def atualizar_metricas_mercado(
+        self, db: Any, metricas: list[MetricaMercado]
+    ) -> int:
         ...
 
 

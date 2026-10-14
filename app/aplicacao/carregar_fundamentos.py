@@ -56,6 +56,7 @@ class CarregarFundamentos:
         montador: MontadorDeIndicadores,
         publicador: PublicadorDeEventos,
         logger: Logger,
+        atualizador_mercado=None,
         repositorio_identidade=None,
     ):
         self._fonte = fonte
@@ -70,6 +71,7 @@ class CarregarFundamentos:
         self._montador = montador
         self._publicador = publicador
         self._logger = logger
+        self._atualizador = atualizador_mercado
         self._identidade = repositorio_identidade
         self._forcar = False
 
@@ -239,6 +241,13 @@ class CarregarFundamentos:
             linhas_gravadas,
             len(indicadores_do_ano),
         )
+
+        if self._atualizador and indicadores_do_ano:
+            simbolos_do_ano = list({i.simbolo for i in indicadores_do_ano})
+            try:
+                self._atualizador.executar([ano], simbolos_do_ano)
+            except Exception as erro:
+                self._logger.warning("Multiplos de mercado %s: %s", ano, erro)
 
     def _conferir_acoes(self, simbolos: list[str]) -> None:
         conferir = getattr(self._indicador, "conferir_acoes", None)

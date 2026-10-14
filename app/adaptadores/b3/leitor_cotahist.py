@@ -18,6 +18,8 @@ from app.dominio.serie_historica import CandleB3, OpcaoB3
 
 TAMANHO_REGISTRO = 245
 TIPO_COTACAO = "01"
+
+# Candles vista (lote padrao)
 MERCADO_LOTE_PADRAO = "010"
 BDI_LOTE_PADRAO = "02"
 # BDR (ex.: JBSS32, o BDR da JBS N.V. que substituiu a JBSS3) vem com BDI
@@ -35,6 +37,11 @@ TIPO_PUT = "PUT"
 MESES_CALL = set("ABCDEFGHIJKL")
 MESES_PUT = set("MNOPQRSTUVWX")
 VENCIMENTO_SENTINELA = date(9999, 12, 31)
+
+# Opcoes: BDI 12=call, 14=put; TPMERC 070=compra, 080=venda
+BDI_CALL = "12"
+BDI_PUT = "14"
+MERCADOS_OPCOES = {"070", "080"}
 
 
 def _inteiro(texto: str) -> int:
@@ -169,6 +176,8 @@ class LeitorCotahist:
                     numero_negocios=_inteiro(linha[147:152]),
                     volume=_inteiro(linha[152:170]),
                     volume_financeiro=_decimal_centavos(linha[170:188]),
+                    nome_resumido=linha[27:39].strip() or None,
+                    moeda_referencia=linha[52:56].strip() or "BRL",
                     especificacao=especificacao or None,
                     marca_ex=_marca_ex(especificacao),
                     fator_cotacao=fator,
@@ -248,6 +257,9 @@ class LeitorCotahist:
                     tipo_opcao=tipo_opcao,
                     status_validacao=status,
                     motivo_rejeicao=motivo,
+                    indice_correcao=linha[201:202].strip() or None,
+                    melhor_oferta_compra=_preco_ou_nulo(linha[121:134], fator),
+                    melhor_oferta_venda=_preco_ou_nulo(linha[134:147], fator),
                 )
             )
         return resultado

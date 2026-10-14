@@ -16,7 +16,7 @@ padroniza a descricao das contas obrigatorias mesmo quando a posicao muda.
 
 from __future__ import annotations
 
-from app.dominio.modelo import BPA, BPP, DFC_MD, DFC_MI, DRE, PLANO_GERAL
+from app.dominio.modelo import BPA, BPP, DFC_MD, DFC_MI, DRE, DVA, PLANO_GERAL
 from app.dominio.plano_contas.regra import RegraConta
 
 # --- estaveis nos tres planos ----------------------------------------------
@@ -88,6 +88,22 @@ _ESTAVEIS = (
         ),
         codigos=("6.02",),
     ),
+    # E1: aliquota efetiva real (substitui constante ALIQUOTA_NOMINAL=0.34)
+    RegraConta(
+        metrica="impostos_dva",
+        demonstracao=DVA,
+        rotulos=("impostos, taxas e contribuicoes", "impostos e contribuicoes", "tributos"),
+        codigos=("7.08.02",),
+        observacao="IR+CSLL reais da DVA; negativo = despesa; substitui ALIQUOTA_NOMINAL=0.34",
+    ),
+    # E2: remuneracao do trabalho da DVA (eficiencia de pessoal, comparativo setorial)
+    RegraConta(
+        metrica="despesas_pessoal",
+        demonstracao=DVA,
+        rotulos=("remuneracao do trabalho", "pessoal", "pessoal e encargos"),
+        codigos=("7.08.01",),
+        observacao="salarios + encargos + beneficios; insumo para eficiencia de pessoal",
+    ),
 )
 
 # --- exclusivas do plano GERAL ---------------------------------------------
@@ -120,16 +136,63 @@ _SO_GERAL = (
         somar=True,
         observacao="circulante + nao circulante; banco nao tem divida nesse sentido",
     ),
-    # Plano LAC (L6): liquidez corrente e margem bruta para qualidade. No
-    # FINANCEIRO, 1.01 e caixa, 2.01 e passivo financeiro e 3.03 e resultado
-    # bruto de intermediacao - nada disso e o conceito da empresa comum.
+    # D1: resultado financeiro liquido (receitas - despesas financeiras)
+    RegraConta(
+        metrica="resultado_financeiro",
+        demonstracao=DRE,
+        rotulos=("resultado financeiro", "receitas financeiras", "despesas financeiras"),
+        codigos=("3.06", "3.07"),
+        planos=(PLANO_GERAL,),
+        somar=True,
+        observacao="3.06+3.07: negativo = despesa financeira liquida; excluido de bancos",
+    ),
+    # D2: passivo nao circulante (dividas LP — exclui bancos/financeiras)
+    RegraConta(
+        metrica="passivo_nao_circulante",
+        demonstracao=BPP,
+        rotulos=("passivo nao circulante",),
+        codigos=("2.02",),
+        planos=(PLANO_GERAL,),
+        observacao="2.02 no banco e Passivos Financeiros Nao Circulantes (outra natureza)",
+    ),
+    # D3: estoques — insumo de liquidez_seca e Days Inventory Outstanding
+    RegraConta(
+        metrica="estoques",
+        demonstracao=BPA,
+        rotulos=("estoques",),
+        codigos=("1.01.04",),
+        planos=(PLANO_GERAL,),
+        observacao="bancos nao tem estoques; excluido do PLANO_FINANCEIRO",
+    ),
+    # D4: contas a receber — insumo de DSO (prazo medio de recebimento)
+    RegraConta(
+        metrica="contas_a_receber",
+        demonstracao=BPA,
+        rotulos=("clientes", "contas a receber de clientes", "contas a receber"),
+        codigos=("1.01.03",),
+        planos=(PLANO_GERAL,),
+        observacao="1.01.03 no banco e creditos com carteiras de emprestimos (outra natureza)",
+    ),
+    # D5: D&A — sub-contas da DFC_MI sao ST_CONTA_FIXA='N' (texto livre); matching
+    # por fragmento de rotulo. Insumo do EBITDA e do FCL ajustado.
+    RegraConta(
+        metrica="depreciacao_amortizacao",
+        demonstracao=DFC_MI,
+        fragmentos=("deprecia", "amortiza"),
+        planos=(PLANO_GERAL,),
+        somar=True,
+        observacao="DFC_MI sub-contas texto livre; somamos todas com 'deprecia' ou 'amortiza'",
+    ),
+    # I5: ativo circulante / passivo circulante / lucro_bruto — insumos de liquidez_corrente,
+    # liquidez_seca e margem bruta. No FINANCEIRO, 1.01 e caixa, 2.01 e passivo financeiro
+    # e 3.03 e resultado bruto de intermediacao — nada disso e o conceito da empresa comum.
     RegraConta(
         metrica="ativo_circulante",
         demonstracao=BPA,
         rotulos=("ativo circulante",),
         codigos=("1.01",),
         planos=(PLANO_GERAL,),
-        observacao="1.01 no banco e Caixa e Equivalentes",
+        observacao="BPA 1.01; no banco e Caixa e Equivalentes (outra semantica)",
     ),
     RegraConta(
         metrica="passivo_circulante",
@@ -137,7 +200,7 @@ _SO_GERAL = (
         rotulos=("passivo circulante",),
         codigos=("2.01",),
         planos=(PLANO_GERAL,),
-        observacao="2.01 no banco e Passivos Financeiros",
+        observacao="BPP 2.01; no banco e Passivos Financeiros (outra semantica)",
     ),
     RegraConta(
         metrica="lucro_bruto",
@@ -189,6 +252,12 @@ DERIVADAS: dict[str, tuple[str, ...]] = {
     "margem_liquida": ("lucro_liquido", "receita_liquida"),
     "divida_liquida": ("divida_bruta", "caixa_equivalentes"),
     "fluxo_caixa_livre": ("fluxo_caixa_operacional", "fluxo_caixa_investimento"),
+    # Fase 4 — indicadores derivados adicionais
+    "cobertura_juros": ("ebit", "resultado_financeiro"),
+    "liquidez_corrente": ("ativo_circulante", "passivo_circulante"),
+    "liquidez_seca": ("ativo_circulante", "estoques", "passivo_circulante"),
+    "dso": ("contas_a_receber", "receita_liquida"),
+    "graham_number": ("lpa", "vpa"),
 }
 
 # capex nao e extraivel: as contas 6.02.xx sao ST_CONTA_FIXA='N', ou seja texto

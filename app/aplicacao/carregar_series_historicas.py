@@ -28,6 +28,7 @@ class CarregarSeriesHistoricas:
         repositorio_series: RepositorioSeries,
         repositorio_execucao: RepositorioExecucao,
         logger: Logger,
+        atualizador_mercado=None,
         repositorio_identidade=None,
         verificador_de_schema=None,
         nome_do_banco: str | None = None,
@@ -39,6 +40,7 @@ class CarregarSeriesHistoricas:
         self._series = repositorio_series
         self._execucao = repositorio_execucao
         self._logger = logger
+        self._atualizador = atualizador_mercado
         self._identidade = repositorio_identidade
         self._verificador = verificador_de_schema
         self._nome_do_banco = nome_do_banco
@@ -101,6 +103,12 @@ class CarregarSeriesHistoricas:
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
             if isins:
                 self._logger.info("COTAHIST %s: ISIN atualizado em %d tickers", ano, isins)
+
+            if self._atualizador and simbolos:
+                try:
+                    self._atualizador.executar([ano], simbolos)
+                except Exception as erro:
+                    self._logger.warning("Multiplos de mercado pos-COTAHIST %s: %s", ano, erro)
 
             if self._fonte_opcoes is not None and self._opcao is not None:
                 from datetime import date as _date

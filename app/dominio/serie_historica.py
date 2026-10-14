@@ -1,4 +1,4 @@
-"""Modelo puro de uma cotação diária da B3."""
+"""Modelo puro de cotacoes diarias da B3 (candles e opcoes)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,12 @@ class CandleB3:
     volume: int
     numero_negocios: int
     volume_financeiro: Decimal
+    # C3: NOMRES pos 28-39 (1-based). Util como fallback de nome para
+    # instrumentos sem cadastro CVM (CRIs, FIIs recentes, BDRs).
+    nome_resumido: str | None = None
+    # C4: MODREF pos 53-56 (1-based). Moeda de referencia da cotacao.
+    # "USD " = BDR; "BRL " = ativo denominado em reais. Padrao "BRL".
+    moeda_referencia: str = "BRL"
     # ESPECI cru ("ON  EB", "PN  EJ N2") e o sufixo de dia ex, quando ha.
     especificacao: str | None = None
     marca_ex: str | None = None
@@ -59,6 +65,11 @@ class OpcaoB3:
     tipo_opcao: str | None = None
     status_validacao: str = "VALIDA"
     motivo_rejeicao: str | None = None
+    # C1 Phase-0: INDOPC pos 202 (1-based), 1 char
+    indice_correcao: str | None = None
+    # C2 Phase-2: PREOFC/PREOFV pos 122-134 / 135-147 (1-based)
+    melhor_oferta_compra: Decimal | None = None
+    melhor_oferta_venda: Decimal | None = None
 
 
 def resumir_validacao_opcoes(opcoes: list[OpcaoB3]) -> dict[str, Any]:

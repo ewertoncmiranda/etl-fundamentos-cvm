@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import date, datetime
+from decimal import Decimal
 from logging import Logger
 
 from app.adaptadores.cvm.cache_local import CacheDeArquivos
@@ -166,20 +167,75 @@ class FonteCvm:
 
     def tickers(self, ano: int) -> dict[str, Ticker]:
         arquivo = f"fca_cia_aberta_valor_mobiliario_{ano}.csv"
+        free_floats = self._free_float_do_fre(ano)
         saida: dict[str, Ticker] = {}
         with self._leitor(PACOTE_FCA, ano) as leitor:
             for linha in leitor.linhas(arquivo):
                 simbolo = (linha.get("Codigo_Negociacao") or "").strip().upper()
                 if not simbolo or (linha.get("Mercado") or "").strip() != "Bolsa":
                     continue
+                cnpj = (linha.get("CNPJ_Companhia") or "").strip()
                 saida[simbolo] = Ticker(
                     simbolo=simbolo,
-                    cnpj=(linha.get("CNPJ_Companhia") or "").strip(),
+                    cnpj=cnpj,
                     tipo_valor_mobiliario=(linha.get("Valor_Mobiliario") or "").strip(),
                     mercado="Bolsa",
+                    free_float=free_floats.get(cnpj),
                     isin=(linha.get("Codigo_ISIN") or "").strip() or None,
                 )
         return saida
+
+    def _free_float_do_fre(self, ano: int) -> dict[str, Decimal]:
+        """Calcula free_float = 100 - soma(% de capital total dos acionistas significativos).
+
+        O arquivo fre_cia_aberta_acionista_significativo lista quem tem >= 5%
+        do capital. A diferenca para 100% e o capital em circulacao livre.
+        """
+        from decimal import Decimal as _D
+
+        arquivo = f"fre_cia_aberta_acionista_significativo_{ano}.csv"
+        acumulado: dict[str, dict] = {}  # cnpj -> {versao, total_detido}
+
+        try:
+            leitor = self._leitor(PACOTE_FRE, ano)
+        except Exception as erro:
+            self._logger.warning("FRE %s indisponivel (%s); free_float nao calculado", ano, erro)
+            return {}
+
+        with leitor:
+            if not leitor.tem(arquivo):
+                return {}
+            for linha in leitor.linhas(arquivo):
+                cnpj = (linha.get("CNPJ_Companhia") or "").strip()
+                if not cnpj:
+                    continue
+                versao = _inteiro(linha.get("Versao"))
+                anterior = acumulado.get(cnpj)
+                if anterior and anterior["versao"] > versao:
+                    continue
+                if anterior and anterior["versao"] < versao:
+                    acumulado[cnpj] = {"versao": versao, "total": _D(0)}
+
+                # Tenta multiplos nomes de coluna usados em versoes diferentes do CVM
+                pct_raw = (
+                    linha.get("Pct_Capital_Total")
+                    or linha.get("Percentual_Capital_Total")
+                    or linha.get("Porcentagem_Capital_Total")
+                    or "0"
+                )
+                try:
+                    pct = _D(str(pct_raw).strip().replace(",", ".") or "0")
+                except Exception:
+                    pct = _D(0)
+
+                reg = acumulado.setdefault(cnpj, {"versao": versao, "total": _D(0)})
+                reg["total"] += pct
+
+        resultado: dict[str, Decimal] = {}
+        for cnpj, dados in acumulado.items():
+            ff = max(_D(0), _D(100) - dados["total"])
+            resultado[cnpj] = ff.quantize(_D("0.01"))
+        return resultado
 
     def empresas(self, ano: int) -> dict[str, Empresa]:
         arquivo = f"fca_cia_aberta_geral_{ano}.csv"
@@ -202,6 +258,8 @@ class FonteCvm:
                     denominacao=(linha.get("Nome_Empresarial") or "").strip(),
                     cd_cvm=(linha.get("Codigo_CVM") or "").strip() or None,
                     setor=(linha.get("Setor_Atividade") or "").strip() or None,
+                    cnae=(linha.get("Codigo_CNAE") or "").strip() or None,
+                    grupo_economico=(linha.get("Grupo_Economico") or "").strip() or None,
                     situacao_registro=(linha.get("Situacao_Registro_CVM") or "").strip() or None,
                     data_constituicao=data_constituicao,
                     uf_municipio=ufs.get(cnpj),

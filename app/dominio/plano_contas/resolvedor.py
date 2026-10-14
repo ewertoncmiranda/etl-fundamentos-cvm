@@ -74,8 +74,33 @@ class ResolucaoPorCodigo:
         return [linha for linha in linhas if linha.cd_conta in regra.codigos]
 
 
+class ResolucaoPorFragmentoRotulo:
+    """Matching parcial para contas nao padronizadas (ST_CONTA_FIXA='N').
+
+    Procura em TODAS as contas (inclusive as nao fixas) se o rotulo normalizado
+    CONTEM algum dos fragmentos da regra. Projetado para D&A na DFC_MI, onde
+    as sub-contas sao texto livre por empresa e nao tem CD_CONTA estaveis.
+    So atua quando `regra.fragmentos` e nao vazio.
+    """
+
+    nome = "fragmento-rotulo"
+
+    def localizar(
+        self, regra: RegraConta, linhas: Sequence[LinhaContabil]
+    ) -> list[LinhaContabil]:
+        if not regra.fragmentos:
+            return []
+        achadas = []
+        for linha in linhas:
+            texto = normalizar(linha.ds_conta or "")
+            if any(frag in texto for frag in regra.fragmentos):
+                achadas.append(linha)
+        return achadas
+
+
 ESTRATEGIAS_PADRAO: tuple[EstrategiaDeResolucao, ...] = (
     ResolucaoPorRotulo(),
+    ResolucaoPorFragmentoRotulo(),
     ResolucaoPorCodigo(),
 )
 
