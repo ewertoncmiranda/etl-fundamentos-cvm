@@ -25,7 +25,11 @@ BPA = "BPA"
 BPP = "BPP"
 DRE = "DRE"
 DFC_MI = "DFC_MI"
+DFC_MD = "DFC_MD"
+# Plano LAC (infra V16): DVA traz JCP e dividendos por periodo (L1); a DMPL
+# entra so como dado bruto, com a coluna do patrimonio em coluna_df.
 DVA = "DVA"
+DMPL = "DMPL"
 
 TIPO_DOC_DFP = "DFP"
 TIPO_DOC_ITR = "ITR"
@@ -59,6 +63,8 @@ class LinhaContabil:
     demonstracao: str
     dt_ini_exerc: date
     dt_fim_exerc: date
+    # Coluna da DMPL (capital social, reservas...); vazia nas demais.
+    coluna_df: str = ""
 
     def e_descendente_de(self, outra: LinhaContabil) -> bool:
         """2.01.04.01 e descendente de 2.01.04; 2.01.05 nao e."""
@@ -80,6 +86,9 @@ class Empresa:
     cnae: str | None = None
     # F2: Grupo_Economico da FCA (ex.: "PETROBRAS")
     grupo_economico: str | None = None
+    situacao_registro: str | None = None
+    data_constituicao: date | None = None
+    uf_municipio: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +99,7 @@ class Ticker:
     mercado: str | None = None
     # G1: FRE acionista_significativo — % de acoes em circulacao livre
     free_float: Decimal | None = None
+    isin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +115,8 @@ class ComposicaoCapital:
     dt_refer: date
     acoes_ex_tesouraria: int
     fonte: str
+    qt_acao_ordinaria: int = 0
+    qt_acao_preferencial: int = 0
     escala_aplicada: int = 1
     divergencia_fre_dfp: float | None = None
 
@@ -127,6 +139,17 @@ class DocumentoContabil:
     @property
     def vazio(self) -> bool:
         return not any(self.linhas.values())
+
+    @property
+    def zerado(self) -> bool:
+        """Tem linhas, mas todas com valor 0: formulario entregue sem preencher.
+
+        A TIM seguiu entregando o consolidado de 2024 depois de incorporar a
+        Cozani, com todas as contas em 0; o numero real esta no individual.
+        """
+        return not self.vazio and all(
+            linha.vl_conta == 0 for linhas in self.linhas.values() for linha in linhas
+        )
 
 
 @dataclass(frozen=True)
@@ -166,6 +189,11 @@ class Indicadores:
     # insumos
     lucro_liquido: Decimal | None = None
     patrimonio_liquido: Decimal | None = None
+    # Plano LAC (L6, infra V16): qualidade (liquidez, margem bruta, Piotroski).
+    ativo_total: Decimal | None = None
+    ativo_circulante: Decimal | None = None
+    passivo_circulante: Decimal | None = None
+    lucro_bruto: Decimal | None = None
     # LPA, VPA e ROE sao calculados sobre a parcela do controlador, que e a
     # convencao das referencias de mercado. Sem isso a WEG sai com ROE 36,5%
     # contra 33,2% do Fundamentus - diferenca de participacao de terceiros.
@@ -176,6 +204,7 @@ class Indicadores:
     divida_bruta: Decimal | None = None
     caixa_equivalentes: Decimal | None = None
     fluxo_caixa_operacional: Decimal | None = None
+    fco_bruto: Decimal | None = None
     capex: Decimal | None = None
     acoes_ex_tesouraria: int | None = None
     # D1: DRE 3.06+3.07 (resultado financeiro liquido)
@@ -214,6 +243,10 @@ class Indicadores:
     dso: Decimal | None = None
     # I8: Graham Number sqrt(22.5 * LPA * VPA) — valor intrinseco classico
     graham_number: Decimal | None = None
+
+    # DT_RECEB da CVM: quando esta versao do documento ficou publica. E a
+    # data que o backtest usa para nao enxergar balanco antes da hora.
+    data_entrega: date | None = None
 
     fonte: str = "CVM"
     cobertura: dict = field(default_factory=dict)

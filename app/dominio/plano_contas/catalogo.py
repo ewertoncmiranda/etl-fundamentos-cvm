@@ -16,7 +16,7 @@ padroniza a descricao das contas obrigatorias mesmo quando a posicao muda.
 
 from __future__ import annotations
 
-from app.dominio.modelo import BPA, BPP, DFC_MI, DRE, DVA, PLANO_GERAL
+from app.dominio.modelo import BPA, BPP, DFC_MD, DFC_MI, DRE, DVA, PLANO_GERAL
 from app.dominio.plano_contas.regra import RegraConta
 
 # --- estaveis nos tres planos ----------------------------------------------
@@ -40,6 +40,13 @@ _ESTAVEIS = (
         rotulos=("patrimonio liquido consolidado", "patrimonio liquido"),
         codigos=("2.03",),
         observacao="codigo varia: 2.03 WEGE3, 2.07 BBAS3, 2.08 ITUB4",
+    ),
+    RegraConta(
+        metrica="ativo_total",
+        demonstracao=BPA,
+        rotulos=("ativo total",),
+        codigos=("1",),
+        observacao="plano LAC (L6): base de accruals, giro e Piotroski; 216 empresas com o rotulo",
     ),
     RegraConta(
         metrica="lucro_liquido_controlador",
@@ -176,27 +183,64 @@ _SO_GERAL = (
         somar=True,
         observacao="DFC_MI sub-contas texto livre; somamos todas com 'deprecia' ou 'amortiza'",
     ),
-    # I5: ativo circulante — insumo de liquidez_corrente e liquidez_seca
+    # I5: ativo circulante / passivo circulante / lucro_bruto — insumos de liquidez_corrente,
+    # liquidez_seca e margem bruta. No FINANCEIRO, 1.01 e caixa, 2.01 e passivo financeiro
+    # e 3.03 e resultado bruto de intermediacao — nada disso e o conceito da empresa comum.
     RegraConta(
         metrica="ativo_circulante",
         demonstracao=BPA,
         rotulos=("ativo circulante",),
         codigos=("1.01",),
         planos=(PLANO_GERAL,),
-        observacao="BPA 1.01; bancos/financeiras nao tem AC/PC na mesma semantica",
+        observacao="BPA 1.01; no banco e Caixa e Equivalentes (outra semantica)",
     ),
-    # I5: passivo circulante — insumo de liquidez_corrente e liquidez_seca
     RegraConta(
         metrica="passivo_circulante",
         demonstracao=BPP,
         rotulos=("passivo circulante",),
         codigos=("2.01",),
         planos=(PLANO_GERAL,),
-        observacao="BPP 2.01; bancos/financeiras nao tem AC/PC na mesma semantica",
+        observacao="BPP 2.01; no banco e Passivos Financeiros (outra semantica)",
+    ),
+    RegraConta(
+        metrica="lucro_bruto",
+        demonstracao=DRE,
+        rotulos=("resultado bruto",),
+        codigos=("3.03",),
+        planos=(PLANO_GERAL,),
+        observacao="3.03 no banco e Resultado Bruto de Intermediacao Financeira",
     ),
 )
 
-REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL
+# --- exclusiva da DFC metodo direto (DFC_MD) ----------------------------------
+# Aplicavel apenas quando a empresa publica pelo metodo direto; para as demais
+# (metodo indireto, a maioria) retorna None — ausencia explicita via cobertura.
+# Pendente de migracao no mart (coluna indicador_fundamentalista.fco_bruto)
+# antes de ser propagada para Indicadores. Os dados brutos ja ficam em
+# fato_contabil apos TASK-E15.
+_EXCLUSIVO_DFC_MD = (
+    RegraConta(
+        metrica="fco_bruto",
+        demonstracao=DFC_MD,
+        rotulos=(
+            "recebimentos de clientes e de outros",
+            "recebimentos de clientes",
+        ),
+        codigos=("6.01.01",),
+        observacao="DFC_MD apenas; sub-contas sao ST_CONTA_FIXA=N, resolucao por rotulo",
+    ),
+)
+
+REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL + _EXCLUSIVO_DFC_MD
+
+# Auxiliar, fora de REGRAS: nao vira coluna do mart. So serve para conferir a
+# divisao 3.11.01/3.11.02 quando a parcela do controlador vem zerada.
+LUCRO_NAO_CONTROLADORES = RegraConta(
+    metrica="lucro_nao_controladores",
+    demonstracao=DRE,
+    rotulos=("atribuido a socios nao controladores",),
+    codigos=("3.11.02",),
+)
 
 # Metricas derivadas e os insumos de que dependem. Faltou insumo, a derivada
 # nao e calculada - nunca estimada.

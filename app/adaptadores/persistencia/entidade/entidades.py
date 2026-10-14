@@ -51,6 +51,9 @@ class EmpresaEntity(MixinCarimbo, Base):
     plano_contas: Mapped[str] = mapped_column(String(20), nullable=False, default="GERAL")
     cnae: Mapped[str | None] = mapped_column(String(7))
     grupo_economico: Mapped[str | None] = mapped_column(String(200))
+    situacao_registro: Mapped[str | None] = mapped_column(String(30))
+    data_constituicao: Mapped[Date | None] = mapped_column(Date)
+    uf_municipio: Mapped[str | None] = mapped_column(String(2))
 
 
 class TickerEntity(MixinCarimbo, Base):
@@ -59,6 +62,7 @@ class TickerEntity(MixinCarimbo, Base):
     simbolo: Mapped[str] = mapped_column(String(10), primary_key=True)
     cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
     tipo_valor_mobiliario: Mapped[str | None] = mapped_column(String(60))
+    isin: Mapped[str | None] = mapped_column(String(12))
     mercado: Mapped[str | None] = mapped_column(String(40))
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     free_float: Mapped[Numeric | None] = mapped_column(Numeric(6, 2))
@@ -75,6 +79,7 @@ class FatoContabilEntity(MixinCarimbo, Base):
             "dt_fim_exerc",
             "dt_ini_exerc",
             "cd_conta",
+            "coluna_df",
             name="uq_fato_contabil",
         ),
     )
@@ -89,6 +94,8 @@ class FatoContabilEntity(MixinCarimbo, Base):
     dt_fim_exerc: Mapped[Date] = mapped_column(Date, nullable=False)
     versao: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     cd_conta: Mapped[str] = mapped_column(String(20), nullable=False)
+    # infra V16: coluna da DMPL; '' nas demais demonstracoes.
+    coluna_df: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     ds_conta: Mapped[str | None] = mapped_column(String(200))
     vl_conta: Mapped[Numeric] = mapped_column(Numeric(24, 2), nullable=False)
     conta_fixa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -126,9 +133,15 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
     periodo: Mapped[Date] = mapped_column(Date, nullable=False)
     tipo_periodo: Mapped[str] = mapped_column(String(12), nullable=False, default="ANUAL")
+    data_entrega: Mapped[Date | None] = mapped_column(Date)
 
     lucro_liquido: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     patrimonio_liquido: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    # infra V16 (plano LAC, L6)
+    ativo_total: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    ativo_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    passivo_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    lucro_bruto: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     lucro_liquido_controlador: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     participacao_nao_controladores: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     receita_liquida: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
@@ -136,6 +149,7 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     divida_bruta: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     caixa_equivalentes: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     fluxo_caixa_operacional: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    fco_bruto: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     capex: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     acoes_ex_tesouraria: Mapped[int | None] = mapped_column(BigInteger)
     resultado_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
@@ -145,8 +159,6 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     contas_a_receber: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     despesas_pessoal: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     depreciacao_amortizacao: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
-    ativo_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
-    passivo_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     lpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
     vpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
@@ -194,6 +206,30 @@ class ExecucaoEntity(Base):
     finalizado_em: Mapped[DateTime | None] = mapped_column(DateTime)
 
 
+class ComunicadoCvmEntity(MixinCarimbo, Base):
+    """Espelho de comunicado_cvm (mysql-migrations/V3__comunicados_cvm.sql)."""
+
+    __tablename__ = "comunicado_cvm"
+    __table_args__ = (
+        UniqueConstraint("protocolo_cvm", name="uq_comunicado_cvm_protocolo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    protocolo_cvm: Mapped[str] = mapped_column(String(20), nullable=False)
+    protocolo_entrega: Mapped[str | None] = mapped_column(String(40))
+    versao: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
+    codigo_cvm: Mapped[str | None] = mapped_column(String(10))
+    categoria: Mapped[str] = mapped_column(String(40), nullable=False)
+    categoria_original: Mapped[str] = mapped_column(String(200), nullable=False)
+    tipo: Mapped[str | None] = mapped_column(String(120))
+    especie: Mapped[str | None] = mapped_column(String(120))
+    assunto: Mapped[str | None] = mapped_column(Text)
+    data_referencia: Mapped[Date | None] = mapped_column(Date)
+    data_entrega: Mapped[Date] = mapped_column(Date, nullable=False)
+    link_download: Mapped[str] = mapped_column(String(300), nullable=False)
+
+
 class SerieHistoricaEntity(MixinCarimbo, Base):
     __tablename__ = "serie_historica"
     __table_args__ = (
@@ -215,8 +251,36 @@ class SerieHistoricaEntity(MixinCarimbo, Base):
     detalhes_json: Mapped[dict | None] = mapped_column(JSON)
 
 
+class CotacaoB3DiariaEntity(MixinCarimbo, Base):
+    """COTAHIST oficial da B3, codigo como negociado no dia (infra V6)."""
+
+    __tablename__ = "cotacao_b3_diaria"
+    __table_args__ = (
+        UniqueConstraint("simbolo", "data_pregao", name="uq_cotacao_b3_diaria"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    simbolo: Mapped[str] = mapped_column(String(12), nullable=False)
+    # infra V16 (plano LAC): ESPECI, marca de dia ex, FATCOT, VWAP e ofertas.
+    especificacao: Mapped[str | None] = mapped_column(String(10))
+    marca_ex: Mapped[str | None] = mapped_column(String(4))
+    fator_cotacao: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    data_pregao: Mapped[Date] = mapped_column(Date, nullable=False)
+    abertura: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    maxima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    minima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    fechamento: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    preco_medio: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    melhor_oferta_compra: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    melhor_oferta_venda: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    numero_negocios: Mapped[int | None] = mapped_column(Integer)
+    volume_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(22, 2))
+    isin: Mapped[str | None] = mapped_column(String(12))
+
+
 class OpcaoB3DiariaEntity(MixinCarimbo, Base):
-    """Espelho de opcao_b3_diaria (schema gerenciado pelo infra repo)."""
+    """Cotacoes diarias de opcoes da B3, do COTAHIST (infra V20 + OPT-INFRA-1)."""
 
     __tablename__ = "opcao_b3_diaria"
     __table_args__ = (
@@ -241,12 +305,37 @@ class OpcaoB3DiariaEntity(MixinCarimbo, Base):
     isin: Mapped[str | None] = mapped_column(String(12))
     ativo_objeto: Mapped[str | None] = mapped_column(String(12))
     tipo_opcao: Mapped[str | None] = mapped_column(String(4))
-    status_validacao: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="LEGADO_NAO_VALIDADO"
-    )
+    status_validacao: Mapped[str | None] = mapped_column(String(20))
     motivo_rejeicao: Mapped[str | None] = mapped_column(String(80))
     # C1 Phase-0: adicionado por V36 — coluna opcional ate a migracao ser aplicada
     indice_correcao: Mapped[str | None] = mapped_column(String(1))
     # C2 Phase-2: adicionado por V37 — colunas opcionais ate a migracao ser aplicada
     melhor_oferta_compra: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
     melhor_oferta_venda: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+
+
+class ProventoContabilEntity(MixinCarimbo, Base):
+    """JCP e dividendos por periodo, da DVA (infra V16, plano LAC L1).
+
+    `total` e coluna gerada no banco: fica fora do mapeamento de proposito,
+    para o INSERT nunca tentar grava-la.
+    """
+
+    __tablename__ = "provento_contabil"
+    __table_args__ = (
+        UniqueConstraint("cnpj", "tipo_doc", "dt_fim_exerc", name="uq_provento_contabil"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
+    tipo_doc: Mapped[str] = mapped_column(String(5), nullable=False)
+    dt_ini_exerc: Mapped[Date] = mapped_column(Date, nullable=False)
+    dt_fim_exerc: Mapped[Date] = mapped_column(Date, nullable=False)
+    versao: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    data_entrega: Mapped[Date | None] = mapped_column(Date)
+    jcp: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    dividendos: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    acoes_ex_tesouraria: Mapped[int | None] = mapped_column(BigInteger)
+    por_acao: Mapped[Numeric | None] = mapped_column(Numeric(18, 8))
+    origem: Mapped[str] = mapped_column(String(20), nullable=False, default="CVM_DVA")
+    cobertura_json: Mapped[dict | None] = mapped_column(JSON)

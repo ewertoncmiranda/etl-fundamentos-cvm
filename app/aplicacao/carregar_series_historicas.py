@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from logging import Logger
 
+from app.dominio.identidade import canonizar_opcoes, codigos_negociados
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO
-from app.portas.fonte_series import FonteDeSeries
-from app.portas.repositorios import RepositorioExecucao, RepositorioSeries, RepositorioUniverso
+from app.dominio.serie_historica import resumir_validacao_opcoes
+from app.portas.fonte_series import FonteDeOpcoes, FonteDeSeries
+from app.portas.repositorios import RepositorioExecucao, RepositorioOpcao, RepositorioSeries
 
 FONTE_COTAHIST = "B3_COTAHIST"
 
@@ -15,6 +17,7 @@ class ResultadoSeries:
     anos_processados: list[int] = field(default_factory=list)
     anos_pulados: list[int] = field(default_factory=list)
     candles_gravados: int = 0
+    opcoes_gravadas: int = 0
 
 
 class CarregarSeriesHistoricas:
@@ -22,28 +25,45 @@ class CarregarSeriesHistoricas:
         self,
         fonte: FonteDeSeries,
         unidade_de_trabalho,
-        repositorio_universo: RepositorioUniverso,
         repositorio_series: RepositorioSeries,
         repositorio_execucao: RepositorioExecucao,
         logger: Logger,
         atualizador_mercado=None,
+        repositorio_identidade=None,
+        verificador_de_schema=None,
+        nome_do_banco: str | None = None,
+        fonte_opcoes: FonteDeOpcoes | None = None,
+        repositorio_opcao: RepositorioOpcao | None = None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
-        self._universo = repositorio_universo
         self._series = repositorio_series
         self._execucao = repositorio_execucao
         self._logger = logger
         self._atualizador = atualizador_mercado
+        self._identidade = repositorio_identidade
+        self._verificador = verificador_de_schema
+        self._nome_do_banco = nome_do_banco
+        self._fonte_opcoes = fonte_opcoes
+        self._opcao = repositorio_opcao
 
     def executar(
-        self, anos: list[int], simbolos_pedidos: list[str] | None = None
+        self,
+        anos: list[int],
+        simbolos_pedidos: list[str] | None = None,
+        forcar: bool = False,
     ) -> ResultadoSeries:
         resultado = ResultadoSeries()
+        if self._verificador is not None:
+            with self._uow.transacao() as db:
+                self._verificador.conferir(db, self._nome_do_banco)
         simbolos = self._resolver_universo(simbolos_pedidos)
-        if not simbolos:
-            self._logger.warning("Nenhum ativo monitorado para carregar do COTAHIST.")
-            return resultado
+        if simbolos is None:
+            self._logger.info(
+                "COTAHIST: universo amplo, sem filtro de simbolo - todo lote padrao/BDR do arquivo"
+            )
+        else:
+            self._logger.info("COTAHIST: %d codigos (com os antigos) - %s", len(simbolos), simbolos)
 
         for ano in sorted(anos):
             arquivo = f"COTAHIST_A{ano}.ZIP"
@@ -52,7 +72,7 @@ class CarregarSeriesHistoricas:
                 etag_anterior = self._execucao.etag_da_ultima_execucao(
                     db, FONTE_COTAHIST, str(ano), arquivo
                 )
-            if assinatura.inalterado_em_relacao_a(etag_anterior):
+            if not forcar and assinatura.inalterado_em_relacao_a(etag_anterior):
                 with self._uow.transacao() as db:
                     self._execucao.registrar(
                         db, FONTE_COTAHIST, str(ano), arquivo, STATUS_PULADO,
@@ -63,9 +83,14 @@ class CarregarSeriesHistoricas:
                 resultado.anos_pulados.append(ano)
                 continue
 
-            candles = self._fonte.candles(ano, set(simbolos))
+            from datetime import date
+
+            candles = self._fonte.candles(
+                ano, None if simbolos is None else set(simbolos), usar_cache=ano < date.today().year
+            )
             with self._uow.transacao() as db:
                 gravados = self._series.salvar_candles_b3(db, candles)
+                isins = self._series.atualizar_isin_dos_tickers(db)
                 self._execucao.registrar(
                     db, FONTE_COTAHIST, str(ano), arquivo, STATUS_SUCESSO,
                     etag=assinatura.etag,
@@ -76,6 +101,8 @@ class CarregarSeriesHistoricas:
             resultado.anos_processados.append(ano)
             resultado.candles_gravados += gravados
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
+            if isins:
+                self._logger.info("COTAHIST %s: ISIN atualizado em %d tickers", ano, isins)
 
             if self._atualizador and simbolos:
                 try:
@@ -83,10 +110,38 @@ class CarregarSeriesHistoricas:
                 except Exception as erro:
                     self._logger.warning("Multiplos de mercado pos-COTAHIST %s: %s", ano, erro)
 
+            if self._fonte_opcoes is not None and self._opcao is not None:
+                from datetime import date as _date
+                usar_cache_opcoes = ano < _date.today().year
+                opcoes = self._fonte_opcoes.opcoes(ano, usar_cache=usar_cache_opcoes)
+                if self._identidade is not None:
+                    with self._uow.transacao() as db:
+                        opcoes = canonizar_opcoes(opcoes, self._identidade.identidades(db))
+                resumo_opcoes = resumir_validacao_opcoes(opcoes)
+                with self._uow.transacao() as db:
+                    opcoes_gravadas = self._opcao.salvar_opcoes_b3(db, opcoes)
+                resultado.opcoes_gravadas += opcoes_gravadas
+                self._logger.info(
+                    "COTAHIST %s: %d opcoes B3 gravadas | lidas=%d | validas=%d | "
+                    "invalidas=%d | motivos=%s",
+                    ano,
+                    opcoes_gravadas,
+                    resumo_opcoes["total"],
+                    resumo_opcoes["validos"],
+                    resumo_opcoes["invalidos"],
+                    resumo_opcoes["motivos"],
+                )
         return resultado
 
-    def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str]:
-        if simbolos_pedidos:
-            return sorted({s.strip().upper() for s in simbolos_pedidos if s.strip()})
-        with self._uow.transacao() as db:
-            return self._universo.listar_simbolos_monitorados(db)
+    def _resolver_universo(self, simbolos_pedidos: list[str] | None) -> list[str] | None:
+        """None = universo amplo (TASK-59): sem lista pre-definida, o proprio
+        COTAHIST e a fonte de quais simbolos negociaram naquele ano - e por
+        isso que nao ha bloqueio de deslistada aqui, diferente do
+        ativo_monitorado (que so tem o que esta sendo acompanhado hoje)."""
+        if not simbolos_pedidos:
+            return None
+        simbolos = sorted({s.strip().upper() for s in simbolos_pedidos if s.strip()})
+        if self._identidade is not None:
+            with self._uow.transacao() as db:
+                simbolos = sorted(codigos_negociados(simbolos, self._identidade.identidades(db)))
+        return simbolos

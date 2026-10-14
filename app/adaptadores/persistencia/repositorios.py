@@ -19,20 +19,25 @@ from datetime import date, datetime
 from logging import Logger
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.adaptadores.persistencia.entidade.entidades import (
     ComposicaoCapitalEntity,
+    ComunicadoCvmEntity,
+    CotacaoB3DiariaEntity,
     EmpresaEntity,
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
     OpcaoB3DiariaEntity,
+    ProventoContabilEntity,
     SerieHistoricaEntity,
     TickerEntity,
 )
 from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
+from app.dominio.comunicado import Comunicado
+from app.dominio.identidade import Identidade
 from app.dominio.modelo import (
     STATUS_SUCESSO,
     ComposicaoCapital,
@@ -41,14 +46,16 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
+from app.dominio.provento import RegistroProvento
 from app.dominio.serie_historica import CandleB3, OpcaoB3
 from app.dominio.texto import normalizar
+from app.dominio.validacao_acoes import conferir_acoes
 
 # Grava em blocos para nao montar um INSERT gigante nem estourar max_allowed_packet
 TAMANHO_DO_LOTE = 500
 
 
-def _em_lotes(itens: Sequence[dict], tamanho: int = TAMANHO_DO_LOTE):
+def _em_lotes(itens: Sequence[Any], tamanho: int = TAMANHO_DO_LOTE):
     for inicio in range(0, len(itens), tamanho):
         yield itens[inicio : inicio + tamanho]
 
@@ -86,6 +93,49 @@ class RepositorioUniversoSql:
         )
         return [linha[0].strip().upper() for linha in resultado if linha[0]]
 
+    # Mesma regra do universo do backtest (gerar-insights app/validacao/
+    # universo.py, infra#TASK-31): >= 200 pregoes e volume medio >= R$ 5 mi/dia
+    # em algum ano, sem units (11) nem BDRs (31-39) fora da ativo_identidade.
+    PREGOES_MINIMOS = 200
+    LIQUIDEZ_MINIMA = 5_000_000
+
+    def listar_simbolos_liquidos(self, db: Any) -> list[str]:
+        """Todo codigo que entrou no universo do backtest em algum ano, com os
+        monitorados - e quem precisa de balanco para o backtest amplo."""
+        from sqlalchemy import text
+
+        resultado = db.execute(
+            text(
+                "SELECT DISTINCT t.simbolo FROM ("
+                "  SELECT simbolo, YEAR(data_pregao) ano, COUNT(*) n, AVG(volume_financeiro) vol"
+                "  FROM cotacao_b3_diaria GROUP BY simbolo, YEAR(data_pregao)"
+                ") t WHERE t.n >= :pregoes AND t.vol >= :liquidez AND t.simbolo NOT LIKE '%11' "
+                "AND (t.simbolo NOT REGEXP '3[1-9]$' "
+                "     OR t.simbolo IN (SELECT simbolo FROM ativo_identidade)) "
+                "UNION SELECT simbolo FROM ativo_monitorado WHERE ativo = TRUE"
+            ),
+            {"pregoes": self.PREGOES_MINIMOS, "liquidez": self.LIQUIDEZ_MINIMA},
+        )
+        return sorted(linha[0].strip().upper() for linha in resultado if linha[0])
+
+
+class RepositorioIdentidadeSql:
+    """Le ativo_identidade (curadoria de tickers renomeados, infra V6)."""
+
+    def identidades(self, db: Any) -> dict[str, Identidade]:
+        from sqlalchemy import text
+
+        linhas = db.execute(
+            text(
+                "SELECT simbolo, simbolo_canonico, cnpj, continuidade_preco "
+                "FROM ativo_identidade"
+            )
+        )
+        return {
+            simbolo: Identidade(simbolo, canonico, cnpj, bool(continuidade))
+            for simbolo, canonico, cnpj, continuidade in linhas
+        }
+
 
 class RepositorioCadastroSql:
     def salvar_empresas(self, db: Any, empresas: Sequence[Empresa]) -> int:
@@ -98,6 +148,9 @@ class RepositorioCadastroSql:
                 "plano_contas": e.plano_contas,
                 "cnae": e.cnae,
                 "grupo_economico": e.grupo_economico,
+                "situacao_registro": e.situacao_registro,
+                "data_constituicao": e.data_constituicao,
+                "uf_municipio": e.uf_municipio,
             }
             for e in empresas
         ]
@@ -105,7 +158,11 @@ class RepositorioCadastroSql:
             db,
             EmpresaEntity,
             registros,
-            ("cd_cvm", "denominacao", "setor", "plano_contas", "cnae", "grupo_economico"),
+            (
+                "cd_cvm", "denominacao", "setor", "plano_contas",
+                "cnae", "grupo_economico",
+                "situacao_registro", "data_constituicao", "uf_municipio",
+            ),
         )
 
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
@@ -114,6 +171,7 @@ class RepositorioCadastroSql:
                 "simbolo": t.simbolo,
                 "cnpj": t.cnpj,
                 "tipo_valor_mobiliario": t.tipo_valor_mobiliario,
+                "isin": t.isin,
                 "mercado": t.mercado,
                 "ativo": True,
                 "free_float": t.free_float,
@@ -124,8 +182,90 @@ class RepositorioCadastroSql:
             db,
             TickerEntity,
             registros,
-            ("cnpj", "tipo_valor_mobiliario", "mercado", "ativo", "free_float"),
+            ("cnpj", "tipo_valor_mobiliario", "isin", "mercado", "ativo", "free_float"),
         )
+
+    def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
+        if not simbolos:
+            return {}
+        consulta = select(TickerEntity.simbolo, TickerEntity.cnpj).where(
+            TickerEntity.simbolo.in_([s.strip().upper() for s in simbolos])
+        )
+        return {simbolo: cnpj for simbolo, cnpj in db.execute(consulta)}
+
+
+def selecionar_para_gravar(
+    recebidos: Sequence[Comunicado], versoes_gravadas: dict[str, int]
+) -> list[Comunicado]:
+    """O que e novo (protocolo desconhecido) ou reapresentado (versao maior).
+
+    Funcao pura, fora do repositorio, para a regra ser testada sem banco.
+    """
+    return [
+        c
+        for c in recebidos
+        if c.protocolo_cvm not in versoes_gravadas
+        or c.versao > versoes_gravadas[c.protocolo_cvm]
+    ]
+
+
+class RepositorioComunicadoSql:
+    """Le as versoes ja gravadas e so escreve o que mudou.
+
+    Ler antes de escrever, aqui, nao e o read-then-write criticado no topo do
+    modulo: e uma consulta por lote (nao por linha), feita pelo unico escritor
+    da tabela, e serve para saber o que e novo - informacao que o
+    ON DUPLICATE KEY UPDATE sozinho nao devolve.
+    """
+
+    COLUNAS_ATUALIZAVEIS = (
+        "protocolo_entrega",
+        "versao",
+        "cnpj",
+        "codigo_cvm",
+        "categoria",
+        "categoria_original",
+        "tipo",
+        "especie",
+        "assunto",
+        "data_referencia",
+        "data_entrega",
+        "link_download",
+    )
+
+    def salvar(self, db: Any, comunicados: Sequence[Comunicado]) -> list[Comunicado]:
+        if not comunicados:
+            return []
+
+        versoes_gravadas: dict[str, int] = {}
+        protocolos = [c.protocolo_cvm for c in comunicados]
+        for lote in _em_lotes(protocolos):
+            consulta = select(
+                ComunicadoCvmEntity.protocolo_cvm, ComunicadoCvmEntity.versao
+            ).where(ComunicadoCvmEntity.protocolo_cvm.in_(lote))
+            versoes_gravadas.update({p: v for p, v in db.execute(consulta)})
+
+        a_gravar = selecionar_para_gravar(comunicados, versoes_gravadas)
+        registros = [
+            {
+                "protocolo_cvm": c.protocolo_cvm,
+                "protocolo_entrega": c.protocolo_entrega,
+                "versao": c.versao,
+                "cnpj": c.cnpj,
+                "codigo_cvm": c.codigo_cvm,
+                "categoria": c.categoria,
+                "categoria_original": c.categoria_original,
+                "tipo": c.tipo,
+                "especie": c.especie,
+                "assunto": c.assunto,
+                "data_referencia": c.data_referencia,
+                "data_entrega": c.data_entrega,
+                "link_download": c.link_download,
+            }
+            for c in a_gravar
+        ]
+        _upsert(db, ComunicadoCvmEntity, registros, self.COLUNAS_ATUALIZAVEIS)
+        return a_gravar
 
 
 class RepositorioFatoContabilSql:
@@ -150,6 +290,7 @@ class RepositorioFatoContabilSql:
                 "dt_fim_exerc": linha.dt_fim_exerc,
                 "versao": versao,
                 "cd_conta": linha.cd_conta,
+                "coluna_df": linha.coluna_df,
                 "ds_conta": linha.ds_conta[:200] if linha.ds_conta else None,
                 "vl_conta": linha.vl_conta,
                 "conta_fixa": linha.conta_fixa,
@@ -170,6 +311,8 @@ class RepositorioFatoContabilSql:
             "dt_refer": capital.dt_refer,
             "tipo_doc": tipo_doc,
             "versao": 1,
+            "qt_acao_ordinaria": capital.qt_acao_ordinaria,
+            "qt_acao_preferencial": capital.qt_acao_preferencial,
             "qt_acao_ex_tesouraria": capital.acoes_ex_tesouraria,
             "qt_acao_total": capital.acoes_ex_tesouraria,
         }
@@ -177,7 +320,10 @@ class RepositorioFatoContabilSql:
             db,
             ComposicaoCapitalEntity,
             [registro],
-            ("qt_acao_ex_tesouraria", "qt_acao_total", "versao"),
+            (
+                "qt_acao_ordinaria", "qt_acao_preferencial",
+                "qt_acao_ex_tesouraria", "qt_acao_total", "versao",
+            ),
         )
 
 
@@ -186,6 +332,10 @@ class RepositorioIndicadorSql:
         "cnpj",
         "lucro_liquido",
         "patrimonio_liquido",
+        "ativo_total",
+        "ativo_circulante",
+        "passivo_circulante",
+        "lucro_bruto",
         "lucro_liquido_controlador",
         "participacao_nao_controladores",
         "receita_liquida",
@@ -193,6 +343,7 @@ class RepositorioIndicadorSql:
         "divida_bruta",
         "caixa_equivalentes",
         "fluxo_caixa_operacional",
+        "fco_bruto",
         "capex",
         "acoes_ex_tesouraria",
         "resultado_financeiro",
@@ -223,6 +374,7 @@ class RepositorioIndicadorSql:
         "versao_cvm",
         "plano_contas",
         "cobertura_json",
+        "data_entrega",
     )
 
     def salvar(self, db: Any, indicadores: Sequence[Indicadores]) -> int:
@@ -234,6 +386,10 @@ class RepositorioIndicadorSql:
                 "tipo_periodo": i.tipo_periodo,
                 "lucro_liquido": i.lucro_liquido,
                 "patrimonio_liquido": i.patrimonio_liquido,
+                "ativo_total": i.ativo_total,
+                "ativo_circulante": i.ativo_circulante,
+                "passivo_circulante": i.passivo_circulante,
+                "lucro_bruto": i.lucro_bruto,
                 "lucro_liquido_controlador": i.lucro_liquido_controlador,
                 "participacao_nao_controladores": i.participacao_nao_controladores,
                 "receita_liquida": i.receita_liquida,
@@ -241,6 +397,7 @@ class RepositorioIndicadorSql:
                 "divida_bruta": i.divida_bruta,
                 "caixa_equivalentes": i.caixa_equivalentes,
                 "fluxo_caixa_operacional": i.fluxo_caixa_operacional,
+                "fco_bruto": i.fco_bruto,
                 "capex": i.capex,
                 "acoes_ex_tesouraria": i.acoes_ex_tesouraria,
                 "resultado_financeiro": i.resultado_financeiro,
@@ -271,94 +428,231 @@ class RepositorioIndicadorSql:
                 "versao_cvm": i.versao_cvm,
                 "plano_contas": i.plano_contas,
                 "cobertura_json": i.cobertura,
+                "data_entrega": i.data_entrega,
             }
             for i in indicadores
         ]
         return _upsert(db, IndicadorFundamentalistaEntity, registros, self.COLUNAS_ATUALIZAVEIS)
 
+    def historico(
+        self,
+        db: Any,
+        simbolo: str,
+        tipo_periodo: str | None = None,
+        limite: int | None = None,
+    ) -> list[Indicadores]:
+        """Le a serie do mart em ordem cronologica para API, painel e backtests."""
+
+        consulta = (
+            select(IndicadorFundamentalistaEntity)
+            .where(IndicadorFundamentalistaEntity.simbolo == simbolo.strip().upper())
+            .order_by(
+                IndicadorFundamentalistaEntity.periodo.asc(),
+                IndicadorFundamentalistaEntity.tipo_periodo.asc(),
+            )
+        )
+        if tipo_periodo:
+            consulta = consulta.where(
+                IndicadorFundamentalistaEntity.tipo_periodo == tipo_periodo
+            )
+        if limite:
+            consulta = consulta.limit(limite)
+
+        resultado = db.execute(consulta)
+        entidades = resultado.scalars().all()
+        return [_indicador_da_entidade(entidade) for entidade in entidades]
+
+    def conferir_acoes(self, db: Any, simbolos: Sequence[str]) -> list[str]:
+        """Aplica dominio/validacao_acoes.py sobre a serie gravada de cada
+        simbolo e devolve o que corrigiu ou anulou, para o log da carga."""
+        from sqlalchemy import text
+
+        if not simbolos:
+            return []
+        linhas = db.execute(
+            text(
+                "SELECT simbolo, periodo, tipo_periodo, acoes_ex_tesouraria "
+                "FROM indicador_fundamentalista "
+                "WHERE simbolo IN :s AND acoes_ex_tesouraria IS NOT NULL"
+            ).bindparams(bindparam("s", expanding=True)),
+            {"s": list(simbolos)},
+        )
+        por_simbolo: dict[str, dict[str, list]] = {}
+        for simbolo, periodo, tipo, acoes in linhas:
+            grupo = por_simbolo.setdefault(simbolo, {"anuais": [], "outros": []})
+            if tipo == "ANUAL":
+                grupo["anuais"].append((periodo, int(acoes)))
+            else:
+                grupo["outros"].append((periodo, tipo, int(acoes)))
+
+        relatorio = []
+        for simbolo, grupo in por_simbolo.items():
+            for c in conferir_acoes(grupo["anuais"], grupo["outros"]):
+                chave = {"s": simbolo, "p": c.periodo, "t": c.tipo_periodo, "m": c.motivo}
+                if c.fator is None:
+                    db.execute(
+                        text(
+                            "UPDATE indicador_fundamentalista SET lpa = NULL, vpa = NULL, "
+                            "cobertura_json = JSON_SET(COALESCE(cobertura_json, JSON_OBJECT()), "
+                            "'$.validacao_acoes', :m) "
+                            "WHERE simbolo = :s AND periodo = :p AND tipo_periodo = :t"
+                        ),
+                        chave,
+                    )
+                else:
+                    db.execute(
+                        text(
+                            "UPDATE indicador_fundamentalista SET "
+                            "acoes_ex_tesouraria = ROUND(acoes_ex_tesouraria * :f), "
+                            "lpa = lpa / :f, "
+                            "vpa = vpa / :f, cobertura_json = JSON_SET(COALESCE(cobertura_json, "
+                            "JSON_OBJECT()), '$.validacao_acoes', :m) "
+                            "WHERE simbolo = :s AND periodo = :p AND tipo_periodo = :t"
+                        ),
+                        {**chave, "f": c.fator},
+                    )
+                relatorio.append(f"{simbolo} {c.periodo} {c.tipo_periodo}: {c.motivo}")
+        return relatorio
+
+
+def _indicador_da_entidade(entidade: IndicadorFundamentalistaEntity) -> Indicadores:
+    return Indicadores(
+        simbolo=entidade.simbolo,
+        cnpj=entidade.cnpj,
+        periodo=entidade.periodo,
+        tipo_periodo=entidade.tipo_periodo,
+        tipo_doc=entidade.tipo_doc,
+        grupo=entidade.grupo,
+        versao_cvm=entidade.versao_cvm,
+        plano_contas=entidade.plano_contas,
+        lucro_liquido=entidade.lucro_liquido,
+        patrimonio_liquido=entidade.patrimonio_liquido,
+        ativo_total=entidade.ativo_total,
+        ativo_circulante=entidade.ativo_circulante,
+        passivo_circulante=entidade.passivo_circulante,
+        lucro_bruto=entidade.lucro_bruto,
+        lucro_liquido_controlador=entidade.lucro_liquido_controlador,
+        participacao_nao_controladores=entidade.participacao_nao_controladores,
+        receita_liquida=entidade.receita_liquida,
+        ebit=entidade.ebit,
+        divida_bruta=entidade.divida_bruta,
+        caixa_equivalentes=entidade.caixa_equivalentes,
+        fluxo_caixa_operacional=entidade.fluxo_caixa_operacional,
+        fco_bruto=entidade.fco_bruto,
+        capex=entidade.capex,
+        acoes_ex_tesouraria=entidade.acoes_ex_tesouraria,
+        lpa=entidade.lpa,
+        vpa=entidade.vpa,
+        roe=entidade.roe,
+        roic=entidade.roic,
+        margem_liquida=entidade.margem_liquida,
+        divida_liquida=entidade.divida_liquida,
+        fluxo_caixa_livre=entidade.fluxo_caixa_livre,
+        data_entrega=entidade.data_entrega,
+        fonte=entidade.fonte,
+        cobertura=entidade.cobertura_json or {},
+    )
+
 
 class RepositorioSeriesSql:
+    """COTAHIST vai para cotacao_b3_diaria, nao para serie_historica: la ficam
+    as velas da BRAPI, e a checagem cruzada de preco precisa das duas fontes
+    lado a lado (a chave simbolo+data sobrescreveria uma com a outra)."""
+
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
         registros = [
             {
                 "simbolo": candle.simbolo,
                 "data_pregao": candle.data_pregao,
-                "intervalo": "1d",
-                "range_usado": "1y",
                 "abertura": candle.abertura,
                 "maxima": candle.maxima,
                 "minima": candle.minima,
                 "fechamento": candle.fechamento,
-                "fechamento_ajustado": None,
                 "volume": candle.volume,
-                "fonte": "B3",
-                "detalhes_json": {
-                    "preco_ajustado": False,
-                    "numero_negocios": candle.numero_negocios,
-                    "volume_financeiro": str(candle.volume_financeiro),
-                    "moeda_referencia": candle.moeda_referencia,
-                },
+                "numero_negocios": candle.numero_negocios,
+                "volume_financeiro": candle.volume_financeiro,
+                "isin": candle.isin,
+                "especificacao": candle.especificacao,
+                "marca_ex": candle.marca_ex,
+                "fator_cotacao": candle.fator_cotacao,
+                "preco_medio": candle.preco_medio,
+                "melhor_oferta_compra": candle.melhor_oferta_compra,
+                "melhor_oferta_venda": candle.melhor_oferta_venda,
             }
             for candle in candles
         ]
         return _upsert(
             db,
-            SerieHistoricaEntity,
+            CotacaoB3DiariaEntity,
             registros,
             (
-                "range_usado", "abertura", "maxima", "minima", "fechamento",
-                "fechamento_ajustado", "volume", "fonte", "detalhes_json",
+                "abertura", "maxima", "minima", "fechamento", "volume",
+                "numero_negocios", "volume_financeiro", "isin", "especificacao", "marca_ex",
+                "fator_cotacao", "preco_medio", "melhor_oferta_compra", "melhor_oferta_venda",
             ),
         )
 
 
+    def atualizar_isin_dos_tickers(self, db: Any) -> int:
+        """O FCA (valor_mobiliario) nao traz ISIN: o do cvm_ticker vem do pregao mais recente
+        do mesmo codigo de negociacao no COTAHIST. So muda quem esta nulo ou diferente."""
+        resultado = db.execute(
+            text(
+                "UPDATE cvm_ticker t "
+                "JOIN (SELECT c.simbolo, c.isin FROM cotacao_b3_diaria c "
+                "      JOIN (SELECT simbolo, MAX(data_pregao) AS ultimo FROM cotacao_b3_diaria "
+                "            WHERE isin IS NOT NULL AND isin <> '' GROUP BY simbolo) u "
+                "        ON u.simbolo = c.simbolo AND u.ultimo = c.data_pregao "
+                "      WHERE c.isin IS NOT NULL AND c.isin <> '') x ON x.simbolo = t.simbolo "
+                "SET t.isin = x.isin "
+                "WHERE t.isin IS NULL OR t.isin <> x.isin"
+            )
+        )
+        return int(resultado.rowcount or 0)
+
+
 class RepositorioOpcaoSql:
-    """Grava cotacoes diarias de opcoes da B3 (tabela opcao_b3_diaria).
-
-    indice_correcao (C1/Phase-0) e gravado apenas se a coluna ja existe no DB
-    (migracao V36 pode estar atrasada em relacao ao deploy do ETL).
-    """
-
-    _COLUNAS_FIXAS = (
-        "bdi",
-        "data_vencimento",
-        "preco_exercicio",
-        "abertura",
-        "maxima",
-        "minima",
-        "fechamento",
-        "preco_medio",
-        "volume",
-        "numero_negocios",
-        "volume_financeiro",
-        "fator_cotacao",
-        "isin",
+    COLUNAS_OPT_VALIDACAO = (
         "ativo_objeto",
         "tipo_opcao",
         "status_validacao",
         "motivo_rejeicao",
     )
-    _COLUNAS_OPCIONAIS = ("indice_correcao", "melhor_oferta_compra", "melhor_oferta_venda")
+    # C1/C2: adicionadas por V36/V37; opcionais ate a migracao chegar
+    COLUNAS_OPT_EXTRAS = ("indice_correcao", "melhor_oferta_compra", "melhor_oferta_venda")
 
-    def _colunas_existentes(self, db: Any) -> set[str]:
-        from sqlalchemy import text
+    def _colunas_opcionais_existentes(self, db: Any) -> set[str]:
+        """OPT-INFRA-1 ainda pode nao existir no banco.
 
-        resultado = db.execute(
-            text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'opcao_b3_diaria'"
+        Enquanto a migration nao chega, invalidos ficam fora do INSERT para a
+        tabela antiga nao continuar contaminada. Quando as colunas existem, o
+        ETL passa a preservar motivo estruturado sem mudar o start unico.
+        """
+        todas = list(self.COLUNAS_OPT_VALIDACAO) + list(self.COLUNAS_OPT_EXTRAS)
+        try:
+            schema = db.execute(text("SELECT DATABASE()")).scalar()
+            if not schema:
+                return set()
+            linhas = db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = 'opcao_b3_diaria' "
+                    "AND column_name IN :colunas"
+                ).bindparams(bindparam("colunas", expanding=True)),
+                {"schema": schema, "colunas": todas},
             )
-        )
-        return {r[0] for r in resultado}
+            return {linha[0] for linha in linhas}
+        except Exception:
+            return set()
 
-    def salvar_opcoes(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
-        if not opcoes:
-            return 0
-        colunas_db = self._colunas_existentes(db)
-        tem_opt = {c for c in self._COLUNAS_OPCIONAIS if c in colunas_db}
-
+    def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        colunas_opcionais = self._colunas_opcionais_existentes(db)
+        schema_com_validacao = set(self.COLUNAS_OPT_VALIDACAO).issubset(colunas_opcionais)
+        opcoes_para_gravar = list(opcoes) if schema_com_validacao else [
+            o for o in opcoes if o.status_validacao == "VALIDA"
+        ]
         registros = []
-        for o in opcoes:
+        for o in opcoes_para_gravar:
             reg: dict[str, Any] = {
                 "simbolo": o.simbolo,
                 "bdi": o.bdi,
@@ -375,17 +669,67 @@ class RepositorioOpcaoSql:
                 "volume_financeiro": o.volume_financeiro,
                 "fator_cotacao": o.fator_cotacao,
                 "isin": o.isin,
-                "ativo_objeto": o.ativo_objeto,
-                "tipo_opcao": o.tipo_opcao,
-                "status_validacao": o.status_validacao,
-                "motivo_rejeicao": o.motivo_rejeicao,
             }
-            for col in tem_opt:
-                reg[col] = getattr(o, col, None)
+            if schema_com_validacao:
+                reg.update({
+                    "ativo_objeto": o.ativo_objeto,
+                    "tipo_opcao": o.tipo_opcao,
+                    "status_validacao": o.status_validacao,
+                    "motivo_rejeicao": o.motivo_rejeicao,
+                })
+            for col in self.COLUNAS_OPT_EXTRAS:
+                if col in colunas_opcionais:
+                    reg[col] = getattr(o, col, None)
             registros.append(reg)
+        colunas_atualizaveis = [
+            "bdi", "data_vencimento", "preco_exercicio",
+            "abertura", "maxima", "minima", "fechamento", "preco_medio",
+            "volume", "numero_negocios", "volume_financeiro",
+            "fator_cotacao", "isin",
+        ]
+        if schema_com_validacao:
+            colunas_atualizaveis.extend(self.COLUNAS_OPT_VALIDACAO)
+        for col in self.COLUNAS_OPT_EXTRAS:
+            if col in colunas_opcionais:
+                colunas_atualizaveis.append(col)
+        return _upsert(
+            db,
+            OpcaoB3DiariaEntity,
+            registros,
+            tuple(colunas_atualizaveis),
+        )
 
-        colunas_atualizar = list(self._COLUNAS_FIXAS) + sorted(tem_opt)
-        return _upsert(db, OpcaoB3DiariaEntity, registros, colunas_atualizar)
+
+class RepositorioProventoSql:
+    """provento_contabil (infra V16): um periodo por (cnpj, tipo_doc, fim)."""
+
+    def salvar(self, db: Any, registros: Sequence[RegistroProvento]) -> int:
+        linhas = [
+            {
+                "cnpj": r.cnpj,
+                "tipo_doc": r.periodo.tipo_doc,
+                "dt_ini_exerc": r.periodo.dt_ini,
+                "dt_fim_exerc": r.periodo.dt_fim,
+                "versao": r.periodo.versao,
+                "data_entrega": r.data_entrega,
+                "jcp": r.periodo.jcp,
+                "dividendos": r.periodo.dividendos,
+                "acoes_ex_tesouraria": r.acoes_ex_tesouraria,
+                "por_acao": r.por_acao,
+                "origem": "CVM_DVA",
+                "cobertura_json": r.cobertura(),
+            }
+            for r in registros
+        ]
+        return _upsert(
+            db,
+            ProventoContabilEntity,
+            linhas,
+            (
+                "dt_ini_exerc", "versao", "data_entrega", "jcp", "dividendos",
+                "acoes_ex_tesouraria", "por_acao", "cobertura_json",
+            ),
+        )
 
 
 class RepositorioMetricasMercadoSql:

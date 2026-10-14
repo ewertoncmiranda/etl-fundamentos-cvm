@@ -14,9 +14,8 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any, Protocol
 
-from datetime import date
-
 from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
+from app.dominio.comunicado import Comunicado
 from app.dominio.modelo import (
     ComposicaoCapital,
     Empresa,
@@ -24,13 +23,17 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 
 
 class RepositorioUniverso(Protocol):
     """Quais tickers carregar. Le ativo_monitorado, populada pelo gestor."""
 
     def listar_simbolos_monitorados(self, db: Any) -> list[str]:
+        ...
+
+    def listar_simbolos_liquidos(self, db: Any) -> list[str]:
+        """Universo do backtest amplo (infra#TASK-31) mais os monitorados."""
         ...
 
 
@@ -41,6 +44,9 @@ class RepositorioCadastro(Protocol):
         ...
 
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
+        ...
+
+    def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
         ...
 
 
@@ -69,9 +75,52 @@ class RepositorioIndicador(Protocol):
     def salvar(self, db: Any, indicadores: Sequence[Indicadores]) -> int:
         ...
 
+    def historico(
+        self,
+        db: Any,
+        simbolo: str,
+        tipo_periodo: str | None = None,
+        limite: int | None = None,
+    ) -> list[Indicadores]:
+        """Serie historica de indicadores, ordenada do periodo mais antigo ao mais novo."""
+        ...
+
+    def conferir_acoes(self, db: Any, simbolos: Sequence[str]) -> list[str]:
+        """Corrige unidade/pico da quantidade de acoes na serie gravada."""
+        ...
+
 
 class RepositorioSeries(Protocol):
     def salvar_candles_b3(self, db: Any, candles: Sequence[CandleB3]) -> int:
+        ...
+
+    def atualizar_isin_dos_tickers(self, db: Any) -> int:
+        """Copia o ISIN mais recente de cada papel (COTAHIST) para cvm_ticker (o FCA nao traz)."""
+        ...
+
+
+class RepositorioOpcao(Protocol):
+    def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        ...
+
+
+class ConsultaDeTickers(Protocol):
+    """Leitura de cvm_ticker, que a carga de fundamentos mantem a partir do FCA."""
+
+    def cnpjs_por_simbolo(self, db: Any, simbolos: Sequence[str]) -> dict[str, str]:
+        """simbolo -> cnpj, so para os simbolos que existem em cvm_ticker."""
+        ...
+
+
+class RepositorioComunicado(Protocol):
+    """Comunicados da base IPE (comunicado_cvm)."""
+
+    def salvar(self, db: Any, comunicados: Sequence[Comunicado]) -> list[Comunicado]:
+        """Grava o que e novo ou reapresentado e devolve exatamente isso.
+
+        Documento ja gravado na mesma versao (ou mais nova) nao conta: e o que
+        permite publicar evento so do que mudou de fato.
+        """
         ...
 
 

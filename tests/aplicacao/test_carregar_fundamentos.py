@@ -70,6 +70,9 @@ class _FonteFake:
             linhas=self._linhas,
         )
 
+    def datas_de_entrega(self, tipo, ano, cnpjs):
+        return {}
+
     def composicoes_de_capital(self, ano, cnpjs):
         if not self._com_capital:
             return {}
@@ -103,6 +106,9 @@ class _RepositorioCadastroFake:
     def salvar_tickers(self, db, tickers):
         self.tickers.extend(tickers)
         return len(tickers)
+
+    def cnpjs_por_simbolo(self, db, simbolos):
+        return {}
 
 
 class _RepositorioFatoFake:

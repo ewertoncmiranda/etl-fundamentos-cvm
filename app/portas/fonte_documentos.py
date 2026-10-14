@@ -7,6 +7,7 @@ caso de uso - e o ponto de extensao mais provavel do sistema.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import date
 from typing import Protocol
 
 from app.dominio.modelo import ComposicaoCapital, DocumentoContabil, Empresa, Ticker
@@ -47,12 +48,24 @@ class FonteDeDocumentos(Protocol):
         """cnpj -> Empresa."""
         ...
 
-    def documentos(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
-        """As demonstracoes das companhias pedidas, ja normalizadas."""
+    def documentos(
+        self, ano: int, cnpjs: set[str], todos_os_grupos: bool = False
+    ) -> Iterable[DocumentoContabil]:
+        """As demonstracoes das companhias pedidas, ja normalizadas.
+
+        Um documento por companhia (consolidado, senao individual); com
+        `todos_os_grupos`, os dois grupos que existirem.
+        """
         ...
 
     def documentos_itr(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
-        """ITRs do ano, preservando cada data de referência."""
+        """ITRs do ano, preservando cada data de referência e os dois grupos."""
+        ...
+
+    def datas_de_entrega(
+        self, tipo: str, ano: int, cnpjs: set[str]
+    ) -> dict[tuple[str, date, int], date]:
+        """(cnpj, dt_refer, versao) -> DT_RECEB: quando o documento ficou publico."""
         ...
 
     def composicoes_de_capital(self, ano: int, cnpjs: set[str]) -> dict[str, ComposicaoCapital]:

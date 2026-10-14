@@ -7,7 +7,7 @@ responsabilidade do dominio.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import date, datetime
 from decimal import Decimal
 from logging import Logger
@@ -19,7 +19,9 @@ from app.adaptadores.cvm.normalizador import NormalizadorDeLinhas
 from app.dominio.modelo import (
     BPA,
     BPP,
+    DFC_MD,
     DFC_MI,
+    DMPL,
     DRE,
     DVA,
     GRUPO_CONSOLIDADO,
@@ -29,12 +31,21 @@ from app.dominio.modelo import (
     ComposicaoCapital,
     DocumentoContabil,
     Empresa,
+    LinhaContabil,
     Ticker,
 )
 from app.dominio.texto import normalizar
+from app.excecoes.excecoes import FonteIndisponivel
 
 # Nome interno da demonstracao -> sufixo do arquivo da CVM
-SUFIXO_DEMONSTRACAO = {BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DVA: "DVA"}
+# DVA e DMPL: plano LAC (L1, infra V16) - proventos por periodo e dado bruto.
+SUFIXO_DEMONSTRACAO = {
+    BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DFC_MD: "DFC_MD",
+    DVA: "DVA", DMPL: "DMPL",
+}
+
+# Demonstracoes de fluxo: no ITR vem acumuladas desde o inicio do exercicio.
+DEMONSTRACOES_ACUMULADAS = (DRE, DFC_MI, DFC_MD, DVA, DMPL)
 
 PACOTE_DFP = "DFP"
 PACOTE_FCA = "FCA"
@@ -56,6 +67,28 @@ def caminho_do_pacote(tipo: str, ano: int) -> str:
     return f"{tipo}/DADOS/{nome}"
 
 
+def _ufs_da_sede(leitor: LeitorDePacoteCvm, ano: int) -> dict[str, str]:
+    """CNPJ -> sigla da UF do endereco da sede (FCA endereco). A UF nao vem no arquivo geral."""
+    arquivo = f"fca_cia_aberta_endereco_{ano}.csv"
+    if not leitor.tem(arquivo):
+        return {}
+    por_cnpj: dict[str, tuple[int, str]] = {}
+    for linha in leitor.linhas(arquivo):
+        if "sede" not in normalizar(linha.get("Tipo_Endereco") or ""):
+            continue
+        cnpj = (linha.get("CNPJ_Companhia") or "").strip()
+        uf = (linha.get("Sigla_UF") or "").strip().upper()
+        if not cnpj or len(uf) != 2:
+            continue
+        try:
+            versao = int(linha.get("Versao") or 0)
+        except ValueError:
+            versao = 0
+        if cnpj not in por_cnpj or versao >= por_cnpj[cnpj][0]:
+            por_cnpj[cnpj] = (versao, uf)
+    return {cnpj: uf for cnpj, (_, uf) in por_cnpj.items()}
+
+
 class FonteCvm:
     def __init__(
         self,
@@ -63,28 +96,67 @@ class FonteCvm:
         cache: CacheDeArquivos,
         normalizador: NormalizadorDeLinhas,
         logger: Logger,
+        hoje: Callable[[], date] = date.today,
     ):
         self._cliente = cliente
         self._cache = cache
         self._normalizador = normalizador
         self._logger = logger
+        self._hoje = hoje
+        # Um HEAD por arquivo por execucao: a carga pede a assinatura para
+        # decidir se processa, e o download reaproveita a mesma resposta.
+        self._assinaturas: dict[str, Assinatura] = {}
 
     # --- pacotes -----------------------------------------------------------
 
     def assinatura(self, tipo: str, ano: int) -> Assinatura:
-        return self._cliente.assinatura(caminho_do_pacote(tipo, ano))
+        """Com a CVM fora do ar (ou limitando requisicoes) e o arquivo em
+        cache, segue com o cache em vez de abortar: assinatura sem ETag nunca
+        e "inalterada", entao o ETag antigo nao e sobrescrito por um falso."""
+        caminho = caminho_do_pacote(tipo, ano)
+        if caminho in self._assinaturas:
+            return self._assinaturas[caminho]
+        try:
+            assinatura = self._cliente.assinatura(caminho)
+        except FonteIndisponivel as erro:
+            nome = caminho.rsplit("/", 1)[-1]
+            if not self._cache.tem(nome):
+                raise
+            self._logger.warning("CVM indisponivel (%s); usando %s do cache", erro, nome)
+            return Assinatura(etag=None, last_modified=None, tamanho_bytes=None)
+        self._assinaturas[caminho] = assinatura
+        return assinatura
 
     def _conteudo(self, tipo: str, ano: int, forcar_download: bool = False) -> bytes:
         caminho = caminho_do_pacote(tipo, ano)
         nome = caminho.rsplit("/", 1)[-1]
 
-        if not forcar_download and self._cache.tem(nome):
+        if (
+            not forcar_download
+            and self._cache.tem(nome)
+            and not self._copia_desatualizada(tipo, ano, nome)
+        ):
             self._logger.debug("Usando %s do cache", nome)
             return self._cache.ler(nome)
 
+        assinatura = self._assinaturas.get(caminho)
         conteudo = self._cliente.baixar(caminho)
-        self._cache.gravar(nome, conteudo)
+        self._cache.gravar(nome, conteudo, assinatura.etag if assinatura else None)
         return conteudo
+
+    def _copia_desatualizada(self, tipo: str, ano: int, nome: str) -> bool:
+        """A CVM republica os arquivos do ano corrente e do anterior (ITR do
+        trimestre, DFP entregue com atraso, reapresentacoes); os mais antigos
+        nao mudam e ficam no cache sem HEAD. Sem ETag na resposta (CVM fora do
+        ar) a copia segue valendo; copia sem ETag gravado (cache anterior a
+        esta regra) e baixada de novo uma vez."""
+        if ano < self._hoje().year - 1:
+            return False
+        etag = self.assinatura(tipo, ano).etag
+        if not etag or etag == self._cache.etag_de(nome):
+            return False
+        self._logger.info("CVM republicou %s; baixando de novo", nome)
+        return True
 
     def _leitor(self, tipo: str, ano: int, forcar_download: bool = False) -> LeitorDePacoteCvm:
         return LeitorDePacoteCvm(
@@ -109,6 +181,7 @@ class FonteCvm:
                     tipo_valor_mobiliario=(linha.get("Valor_Mobiliario") or "").strip(),
                     mercado="Bolsa",
                     free_float=free_floats.get(cnpj),
+                    isin=(linha.get("Codigo_ISIN") or "").strip() or None,
                 )
         return saida
 
@@ -170,10 +243,16 @@ class FonteCvm:
         with self._leitor(PACOTE_FCA, ano) as leitor:
             if not leitor.tem(arquivo):
                 return saida
+            ufs = _ufs_da_sede(leitor, ano)
             for linha in leitor.linhas(arquivo):
                 cnpj = (linha.get("CNPJ_Companhia") or "").strip()
                 if not cnpj:
                     continue
+                data_str = (linha.get("Data_Constituicao") or "").strip()
+                try:
+                    data_constituicao: date | None = datetime.strptime(data_str, "%Y-%m-%d").date()
+                except ValueError:
+                    data_constituicao = None
                 saida[cnpj] = Empresa(
                     cnpj=cnpj,
                     denominacao=(linha.get("Nome_Empresarial") or "").strip(),
@@ -181,34 +260,85 @@ class FonteCvm:
                     setor=(linha.get("Setor_Atividade") or "").strip() or None,
                     cnae=(linha.get("Codigo_CNAE") or "").strip() or None,
                     grupo_economico=(linha.get("Grupo_Economico") or "").strip() or None,
+                    situacao_registro=(linha.get("Situacao_Registro_CVM") or "").strip() or None,
+                    data_constituicao=data_constituicao,
+                    uf_municipio=ufs.get(cnpj),
                 )
+        return saida
+
+    # --- data de entrega (point-in-time) ------------------------------------
+
+    def datas_de_entrega(
+        self, tipo: str, ano: int, cnpjs: set[str]
+    ) -> dict[tuple[str, date, int], date]:
+        """(cnpj, dt_refer, versao) -> DT_RECEB, do arquivo-indice do pacote.
+
+        As demonstracoes nao trazem a data de entrega; so o indice
+        (dfp_cia_aberta_{ano}.csv / itr_cia_aberta_{ano}.csv) traz. Cada
+        versao tem a sua: uma reapresentacao so ficou publica na entrega dela.
+        """
+        arquivo = f"{tipo.lower()}_cia_aberta_{ano}.csv"
+        saida: dict[tuple[str, date, int], date] = {}
+        with self._leitor(tipo, ano) as leitor:
+            if not leitor.tem(arquivo):
+                self._logger.warning("%s %s sem indice de entregas (%s)", tipo, ano, arquivo)
+                return saida
+            for linha in leitor.linhas(arquivo):
+                cnpj = (linha.get("CNPJ_CIA") or "").strip()
+                if cnpj not in cnpjs:
+                    continue
+                try:
+                    referencia = datetime.strptime(linha["DT_REFER"].strip(), "%Y-%m-%d").date()
+                    recebido = datetime.strptime(linha["DT_RECEB"].strip(), "%Y-%m-%d").date()
+                except (KeyError, ValueError, AttributeError):
+                    continue
+                saida[(cnpj, referencia, _inteiro(linha.get("VERSAO")))] = recebido
         return saida
 
     # --- demonstracoes (DFP) ----------------------------------------------
 
-    def documentos(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
+    def documentos(
+        self, ano: int, cnpjs: set[str], todos_os_grupos: bool = False
+    ) -> Iterable[DocumentoContabil]:
         """Consolidado quando existe; individual como fallback.
 
         434 companhias publicam DRE consolidada contra 665 com capital
         registrado - quem nao tem controlada so publica individual.
-        """
-        consolidado = self._demonstracoes(ano, cnpjs, GRUPO_CONSOLIDADO)
-        faltantes = cnpjs - set(consolidado)
-        individual = (
-            self._demonstracoes(ano, faltantes, GRUPO_INDIVIDUAL) if faltantes else {}
-        )
 
-        for grupo, mapa in ((GRUPO_CONSOLIDADO, consolidado), (GRUPO_INDIVIDUAL, individual)):
-            for cnpj, dados in mapa.items():
-                yield DocumentoContabil(
-                    cnpj=cnpj,
-                    tipo_doc=TIPO_DOC_DFP,
-                    grupo=grupo,
-                    versao=dados["versao"],
-                    dt_refer=dados["dt_refer"],
-                    dt_fim_exerc=dados["dt_fim_exerc"],
-                    linhas={k: tuple(v) for k, v in dados["linhas"].items()},
-                )
+        Consolidado com todas as contas em 0 conta como ausente: e formulario
+        entregue sem preencher (TIM 2024), e o numero real esta no individual.
+
+        `todos_os_grupos` entrega consolidado e individual de cada companhia,
+        para quem precisa casar grupo com outro documento (o TTM).
+        """
+        consolidado = {
+            cnpj: documento
+            for cnpj, documento in self._documentos_dfp(
+                ano, cnpjs, GRUPO_CONSOLIDADO
+            ).items()
+            if not documento.zerado
+        }
+        faltantes = cnpjs if todos_os_grupos else cnpjs - set(consolidado)
+        individual = self._documentos_dfp(ano, faltantes, GRUPO_INDIVIDUAL)
+
+        yield from consolidado.values()
+        yield from (d for d in individual.values() if not d.zerado)
+
+    def _documentos_dfp(
+        self, ano: int, cnpjs: set[str], grupo: str
+    ) -> dict[str, DocumentoContabil]:
+        return {
+            cnpj: DocumentoContabil(
+                cnpj=cnpj,
+                tipo_doc=TIPO_DOC_DFP,
+                grupo=grupo,
+                versao=dados["versao"],
+                dt_refer=dados["dt_refer"],
+                dt_fim_exerc=dados["dt_fim_exerc"],
+                linhas={k: tuple(v) for k, v in dados["linhas"].items()},
+            )
+            for cnpj, dados in self._demonstracoes(ano, cnpjs, grupo).items()
+        }
 
     def _demonstracoes(self, ano: int, cnpjs: set[str], grupo: str) -> dict[str, dict]:
         if not cnpjs:
@@ -253,14 +383,15 @@ class FonteCvm:
         return {cnpj: dados for cnpj, dados in acumulado.items() if dados["linhas"]}
 
     def documentos_itr(self, ano: int, cnpjs: set[str]) -> Iterable[DocumentoContabil]:
-        consolidado = self._demonstracoes_itr(ano, cnpjs, GRUPO_CONSOLIDADO)
-        cnpjs_com_consolidado = {cnpj for cnpj, _ in consolidado}
-        individual = self._demonstracoes_itr(
-            ano, cnpjs - cnpjs_com_consolidado, GRUPO_INDIVIDUAL
-        )
-        for grupo, mapa in ((GRUPO_CONSOLIDADO, consolidado), (GRUPO_INDIVIDUAL, individual)):
+        """Consolidado e individual de cada trimestre, menos os zerados.
+
+        Quem escolhe o grupo e o TTM: a TIM publica consolidado em 2026 e so
+        individual em 2025, e somar um com o outro mistura perimetros.
+        """
+        for grupo in (GRUPO_CONSOLIDADO, GRUPO_INDIVIDUAL):
+            mapa = self._demonstracoes_itr(ano, cnpjs, grupo)
             for (cnpj, _), dados in sorted(mapa.items(), key=lambda item: item[0][1]):
-                yield DocumentoContabil(
+                documento = DocumentoContabil(
                     cnpj=cnpj,
                     tipo_doc=TIPO_DOC_ITR,
                     grupo=grupo,
@@ -269,6 +400,8 @@ class FonteCvm:
                     dt_fim_exerc=dados["dt_fim_exerc"],
                     linhas={k: tuple(v) for k, v in dados["linhas"].items()},
                 )
+                if not documento.zerado:
+                    yield documento
 
     def _demonstracoes_itr(
         self, ano: int, cnpjs: set[str], grupo: str
@@ -289,15 +422,6 @@ class FonteCvm:
                     if convertida is None:
                         continue
                     referencia = _data_ou_hoje(linha_crua.get("DT_REFER"))
-                    # DRE do ITR pode trazer no mesmo arquivo o trimestre isolado
-                    # e o acumulado no ano. TTM usa o acumulado iniciado em 1º/1;
-                    # misturar os dois produz contas duplicadas e um resultado
-                    # silenciosamente errado.
-                    if (
-                        demonstracao in (DRE, DFC_MI)
-                        and convertida.dt_ini_exerc != date(referencia.year, 1, 1)
-                    ):
-                        continue
                     chave = (cnpj, referencia)
                     versao = self._normalizador.versao(linha_crua)
                     registro = acumulado.setdefault(
@@ -315,6 +439,10 @@ class FonteCvm:
                         registro["versao"] = versao
                         registro["linhas"] = {}
                     registro["linhas"].setdefault(demonstracao, []).append(convertida)
+        for dados in acumulado.values():
+            for demonstracao in DEMONSTRACOES_ACUMULADAS:
+                if demonstracao in dados["linhas"]:
+                    dados["linhas"][demonstracao] = _so_acumulado(dados["linhas"][demonstracao])
         return {chave: dados for chave, dados in acumulado.items() if dados["linhas"]}
 
     # --- quantidade de acoes (DFP + FRE) ----------------------------------
@@ -339,7 +467,8 @@ class FonteCvm:
         for cnpj, bruto in dfp.items():
             total_dfp = bruto["total"]
             tesouraria = bruto["tesouraria"]
-            total_fre = fre.get(cnpj, 0)
+            capital_fre = fre.get(cnpj, {})
+            total_fre = capital_fre.get("total", 0)
 
             if total_fre and total_dfp:
                 divergencia = total_fre / total_dfp
@@ -352,6 +481,12 @@ class FonteCvm:
                     dt_refer=bruto["dt_refer"],
                     acoes_ex_tesouraria=total_fre - tesouraria * escala,
                     fonte="FRE",
+                    qt_acao_ordinaria=_classe_do_fre_ou_dfp(
+                        capital_fre, "qt_acao_ordinaria", bruto, escala
+                    ),
+                    qt_acao_preferencial=_classe_do_fre_ou_dfp(
+                        capital_fre, "qt_acao_preferencial", bruto, escala
+                    ),
                     escala_aplicada=escala,
                     divergencia_fre_dfp=round(divergencia, 3),
                 )
@@ -361,6 +496,25 @@ class FonteCvm:
                     dt_refer=bruto["dt_refer"],
                     acoes_ex_tesouraria=total_dfp - tesouraria,
                     fonte="DFP",
+                    qt_acao_ordinaria=bruto["qt_acao_ordinaria"],
+                    qt_acao_preferencial=bruto["qt_acao_preferencial"],
+                )
+
+        # Os DFP ate 2019 nao trazem o arquivo de composicao do capital (a CVM
+        # passou a publica-lo em 2020); sem isto o LPA desses anos sai nulo e o
+        # backtest perde metade do periodo. O FRE do mesmo ano tem o total de
+        # acoes; a tesouraria fica sem desconto (em geral < 5% do capital), o
+        # que a `fonte` registra para quem ler a cobertura.
+        for cnpj, capital_fre in fre.items():
+            total_fre = capital_fre.get("total", 0)
+            if cnpj not in saida and total_fre:
+                saida[cnpj] = ComposicaoCapital(
+                    cnpj=cnpj,
+                    dt_refer=date(ano, 12, 31),
+                    acoes_ex_tesouraria=total_fre,
+                    fonte="FRE_SEM_TESOURARIA",
+                    qt_acao_ordinaria=capital_fre.get("qt_acao_ordinaria", 0),
+                    qt_acao_preferencial=capital_fre.get("qt_acao_preferencial", 0),
                 )
         return saida
 
@@ -383,12 +537,23 @@ class FonteCvm:
                     "dt_refer": _data_ou_hoje(linha.get("DT_REFER")),
                     "total": _inteiro(linha.get("QT_ACAO_TOTAL_CAP_INTEGR")),
                     "tesouraria": _inteiro(linha.get("QT_ACAO_TOTAL_TESOURO")),
+                    "qt_acao_ordinaria": _primeiro_inteiro(
+                        linha, "QT_ACAO_ORDIN_CAP_INTEGR", "QT_ACAO_ORDINARIA"
+                    ),
+                    "qt_acao_preferencial": _primeiro_inteiro(
+                        linha, "QT_ACAO_PREF_CAP_INTEGR", "QT_ACAO_PREFERENCIAL"
+                    ),
                 }
         return saida
 
-    def _capital_do_fre(self, ano: int, cnpjs: set[str]) -> dict[str, int]:
+    def _capital_do_fre(self, ano: int, cnpjs: set[str]) -> dict[str, dict]:
         arquivo = f"fre_cia_aberta_capital_social_{ano}.csv"
         saida: dict[str, dict] = {}
+        campo_por_tipo = {
+            "capital integralizado": "total",
+            "acoes ordinarias": "qt_acao_ordinaria",
+            "acoes preferenciais": "qt_acao_preferencial",
+        }
         try:
             leitor = self._leitor(PACOTE_FRE, ano)
         except Exception as erro:  # FRE ausente nao impede a carga
@@ -399,7 +564,9 @@ class FonteCvm:
             if not leitor.tem(arquivo):
                 return {}
             for linha in leitor.linhas(arquivo):
-                if normalizar(linha.get("Tipo_Capital")) != "capital integralizado":
+                tipo_capital = normalizar(linha.get("Tipo_Capital"))
+                campo = campo_por_tipo.get(tipo_capital)
+                if not campo:
                     continue
                 cnpj = (linha.get("CNPJ_Companhia") or "").strip()
                 if cnpj not in cnpjs:
@@ -408,11 +575,58 @@ class FonteCvm:
                 anterior = saida.get(cnpj)
                 if anterior and anterior["versao"] > versao:
                     continue
-                saida[cnpj] = {
-                    "versao": versao,
-                    "total": _inteiro(linha.get("Quantidade_Total_Acoes")),
-                }
-        return {cnpj: dados["total"] for cnpj, dados in saida.items()}
+                if not anterior or anterior["versao"] < versao:
+                    anterior = {"versao": versao}
+                    saida[cnpj] = anterior
+                anterior[campo] = _inteiro(linha.get("Quantidade_Total_Acoes"))
+                if tipo_capital == "capital integralizado":
+                    _copiar_inteiro_se_presente(
+                        linha,
+                        "Quantidade_Acoes_Ordinarias",
+                        anterior,
+                        "qt_acao_ordinaria",
+                    )
+                    _copiar_inteiro_se_presente(
+                        linha,
+                        "Quantidade_Acoes_Preferenciais",
+                        anterior,
+                        "qt_acao_preferencial",
+                    )
+        return saida
+
+
+def _classe_do_fre_ou_dfp(
+    capital_fre: dict, campo: str, capital_dfp: dict, escala: int
+) -> int:
+    """FRE vence quando a classe foi declarada, inclusive se o valor e zero."""
+    if campo in capital_fre:
+        return capital_fre[campo]
+    return capital_dfp[campo] * escala
+
+
+def _copiar_inteiro_se_presente(
+    origem: dict[str, str], campo_origem: str, destino: dict, campo_destino: str
+) -> None:
+    valor = origem.get(campo_origem)
+    if valor is not None and valor.strip():
+        destino[campo_destino] = _inteiro(valor)
+
+
+def _primeiro_inteiro(linha: dict[str, str], *campos: str) -> int:
+    for campo in campos:
+        valor = linha.get(campo)
+        if valor is not None and valor.strip():
+            return _inteiro(valor)
+    return 0
+
+
+def _so_acumulado(linhas: list[LinhaContabil]) -> list[LinhaContabil]:
+    """O ITR traz no mesmo arquivo o trimestre isolado e o acumulado do
+    exercicio; misturar os dois duplica contas e da um resultado errado em
+    silencio. O acumulado e o que comeca mais cedo: o inicio do exercicio
+    social, que nem sempre e 1o/1 (RAIZ4 vai de abril a marco)."""
+    inicio = min(linha.dt_ini_exerc for linha in linhas)
+    return [linha for linha in linhas if linha.dt_ini_exerc == inicio]
 
 
 def _inteiro(valor: str | None) -> int:

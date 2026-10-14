@@ -79,4 +79,6 @@ class NormalizadorDeLinhas:
             demonstracao=demonstracao,
             dt_ini_exerc=dt_ini,
             dt_fim_exerc=dt_fim,
+            # So a DMPL tem COLUNA_DF; a mesma conta aparece uma vez por coluna.
+            coluna_df=(linha.get("COLUNA_DF") or "").strip()[:60],
         )
