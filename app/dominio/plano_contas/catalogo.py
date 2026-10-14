@@ -89,6 +89,14 @@ _ESTAVEIS = (
         codigos=("7.08.02",),
         observacao="IR+CSLL reais da DVA; negativo = despesa; substitui ALIQUOTA_NOMINAL=0.34",
     ),
+    # E2: remuneracao do trabalho da DVA (eficiencia de pessoal, comparativo setorial)
+    RegraConta(
+        metrica="despesas_pessoal",
+        demonstracao=DVA,
+        rotulos=("remuneracao do trabalho", "pessoal", "pessoal e encargos"),
+        codigos=("7.08.01",),
+        observacao="salarios + encargos + beneficios; insumo para eficiencia de pessoal",
+    ),
 )
 
 # --- exclusivas do plano GERAL ---------------------------------------------
@@ -139,6 +147,24 @@ _SO_GERAL = (
         codigos=("2.02",),
         planos=(PLANO_GERAL,),
         observacao="2.02 no banco e Passivos Financeiros Nao Circulantes (outra natureza)",
+    ),
+    # D3: estoques — insumo de liquidez_seca e Days Inventory Outstanding
+    RegraConta(
+        metrica="estoques",
+        demonstracao=BPA,
+        rotulos=("estoques",),
+        codigos=("1.01.04",),
+        planos=(PLANO_GERAL,),
+        observacao="bancos nao tem estoques; excluido do PLANO_FINANCEIRO",
+    ),
+    # D4: contas a receber — insumo de DSO (prazo medio de recebimento)
+    RegraConta(
+        metrica="contas_a_receber",
+        demonstracao=BPA,
+        rotulos=("clientes", "contas a receber de clientes", "contas a receber"),
+        codigos=("1.01.03",),
+        planos=(PLANO_GERAL,),
+        observacao="1.01.03 no banco e creditos com carteiras de emprestimos (outra natureza)",
     ),
 )
 

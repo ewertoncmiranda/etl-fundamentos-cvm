@@ -182,6 +182,12 @@ class Indicadores:
     passivo_nao_circulante: Decimal | None = None
     # E1: DVA 7.08.02 (aliquota efetiva real; substitui ALIQUOTA_NOMINAL=0.34)
     impostos_dva: Decimal | None = None
+    # D3: BPA 1.01.04 — insumo de liquidez_seca e ciclo financeiro (DIO)
+    estoques: Decimal | None = None
+    # D4: BPA 1.01.03 — insumo de DSO (prazo medio de recebimento)
+    contas_a_receber: Decimal | None = None
+    # E2: DVA 7.08.01 — remuneracao do trabalho; eficiencia de pessoal
+    despesas_pessoal: Decimal | None = None
 
     # derivados
     lpa: Decimal | None = None

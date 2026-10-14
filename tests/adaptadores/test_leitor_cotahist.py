@@ -34,6 +34,8 @@ def _linha_opcao(
     simbolo: str = "PETRA225",
     bdi: str = "12",
     indice_correcao: str = "0",
+    melhor_oferta_compra: str = "",
+    melhor_oferta_venda: str = "",
 ) -> str:
     """Monta registro COTAHIST de opcao (245 chars)."""
     linha = [" "] * 245
@@ -49,7 +51,12 @@ def _linha_opcao(
     # TPMERC: 070=call, 080=put (pos 25-27, 1-based = 24:27 0-based)
     tpmerc = "070" if bdi == "12" else "080"
     preencher(24, 27, tpmerc)
-    # abertura, maxima, minima, preco_medio (zeros = None no dominio)
+    # PREOFC melhor oferta compra (pos 122-134, 1-based = 121:134 0-based)
+    if melhor_oferta_compra:
+        preencher(121, 134, melhor_oferta_compra)
+    # PREOFV melhor oferta venda (pos 135-147, 1-based = 134:147 0-based)
+    if melhor_oferta_venda:
+        preencher(134, 147, melhor_oferta_venda)
     # fechamento
     preencher(108, 121, "2200")     # R$22,00
     # preco_exercicio (pos 189-201, 1-based = 188:201)
@@ -141,3 +148,17 @@ def test_candle_nao_aparece_como_opcao():
 def test_opcao_filtrada_fora_do_universo():
     linha = _linha_opcao(simbolo="VALED225")
     assert LeitorCotahist().ler_opcoes_linhas([linha], {"PETRA225"}) == []
+
+
+def test_parseia_bid_ask_opcao():
+    linha = _linha_opcao(melhor_oferta_compra="2190", melhor_oferta_venda="2210")
+    o = LeitorCotahist().ler_opcoes_linhas([linha], {"PETRA225"})[0]
+    assert o.melhor_oferta_compra == Decimal("21.90")
+    assert o.melhor_oferta_venda == Decimal("22.10")
+
+
+def test_bid_ask_zerado_retorna_none():
+    linha = _linha_opcao()
+    o = LeitorCotahist().ler_opcoes_linhas([linha], {"PETRA225"})[0]
+    assert o.melhor_oferta_compra is None
+    assert o.melhor_oferta_venda is None

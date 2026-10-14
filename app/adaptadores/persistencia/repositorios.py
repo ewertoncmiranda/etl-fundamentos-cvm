@@ -196,6 +196,9 @@ class RepositorioIndicadorSql:
         "resultado_financeiro",
         "passivo_nao_circulante",
         "impostos_dva",
+        "estoques",
+        "contas_a_receber",
+        "despesas_pessoal",
         "lpa",
         "vpa",
         "roe",
@@ -232,6 +235,9 @@ class RepositorioIndicadorSql:
                 "resultado_financeiro": i.resultado_financeiro,
                 "passivo_nao_circulante": i.passivo_nao_circulante,
                 "impostos_dva": i.impostos_dva,
+                "estoques": i.estoques,
+                "contas_a_receber": i.contas_a_receber,
+                "despesas_pessoal": i.despesas_pessoal,
                 "lpa": i.lpa,
                 "vpa": i.vpa,
                 "roe": i.roe,
@@ -311,7 +317,7 @@ class RepositorioOpcaoSql:
         "status_validacao",
         "motivo_rejeicao",
     )
-    _COLUNAS_OPCIONAIS = ("indice_correcao",)
+    _COLUNAS_OPCIONAIS = ("indice_correcao", "melhor_oferta_compra", "melhor_oferta_venda")
 
     def _colunas_existentes(self, db: Any) -> set[str]:
         from sqlalchemy import text
@@ -353,8 +359,8 @@ class RepositorioOpcaoSql:
                 "status_validacao": o.status_validacao,
                 "motivo_rejeicao": o.motivo_rejeicao,
             }
-            if "indice_correcao" in tem_opt:
-                reg["indice_correcao"] = o.indice_correcao
+            for col in tem_opt:
+                reg[col] = getattr(o, col, None)
             registros.append(reg)
 
         colunas_atualizar = list(self._COLUNAS_FIXAS) + sorted(tem_opt)

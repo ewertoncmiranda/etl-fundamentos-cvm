@@ -140,6 +140,9 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     resultado_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     passivo_nao_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     impostos_dva: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    estoques: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    contas_a_receber: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    despesas_pessoal: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     lpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
     vpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
@@ -229,3 +232,6 @@ class OpcaoB3DiariaEntity(MixinCarimbo, Base):
     motivo_rejeicao: Mapped[str | None] = mapped_column(String(80))
     # C1 Phase-0: adicionado por V36 — coluna opcional ate a migracao ser aplicada
     indice_correcao: Mapped[str | None] = mapped_column(String(1))
+    # C2 Phase-2: adicionado por V37 — colunas opcionais ate a migracao ser aplicada
+    melhor_oferta_compra: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    melhor_oferta_venda: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))

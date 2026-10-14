@@ -139,6 +139,8 @@ class LeitorCotahist:
                     status_validacao="VALIDA",
                     motivo_rejeicao=None,
                     indice_correcao=linha[201:202].strip() or None,
+                    melhor_oferta_compra=_decimal_centavos_ou_none(linha[121:134]),
+                    melhor_oferta_venda=_decimal_centavos_ou_none(linha[134:147]),
                 )
             )
         return resultado

@@ -54,3 +54,7 @@ class OpcaoB3:
     motivo_rejeicao: str | None
     # C1 Phase-0: INDOPC pos 202 (1-based), 1 char
     indice_correcao: str | None = None
+    # C2 Phase-2: PREOFC/PREOFV pos 122-134 / 135-147 (1-based)
+    # spread = (melhor_oferta_venda - melhor_oferta_compra) / preco_medio
+    melhor_oferta_compra: Decimal | None = None
+    melhor_oferta_venda: Decimal | None = None
