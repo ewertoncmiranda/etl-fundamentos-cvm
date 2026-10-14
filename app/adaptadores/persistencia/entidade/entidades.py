@@ -145,6 +145,8 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     contas_a_receber: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     despesas_pessoal: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     depreciacao_amortizacao: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    ativo_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    passivo_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     lpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
     vpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
@@ -154,6 +156,11 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     divida_liquida: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     fluxo_caixa_livre: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     ebitda: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    cobertura_juros: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    liquidez_corrente: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
+    liquidez_seca: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))
+    dso: Mapped[Numeric | None] = mapped_column(Numeric(10, 2))
+    graham_number: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
 
     fonte: Mapped[str] = mapped_column(String(20), nullable=False, default="CVM")
     tipo_doc: Mapped[str] = mapped_column(String(5), nullable=False)

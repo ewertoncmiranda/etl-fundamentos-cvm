@@ -115,6 +115,8 @@ class MontadorDeIndicadores:
             contas_a_receber=insumos.get("contas_a_receber"),
             despesas_pessoal=insumos.get("despesas_pessoal"),
             depreciacao_amortizacao=insumos.get("depreciacao_amortizacao"),
+            ativo_circulante=insumos.get("ativo_circulante"),
+            passivo_circulante=insumos.get("passivo_circulante"),
             lpa=derivados["lpa"],
             vpa=derivados["vpa"],
             roe=derivados["roe"],
@@ -123,6 +125,11 @@ class MontadorDeIndicadores:
             divida_liquida=derivados["divida_liquida"],
             fluxo_caixa_livre=derivados["fluxo_caixa_livre"],
             ebitda=derivados["ebitda"],
+            cobertura_juros=derivados["cobertura_juros"],
+            liquidez_corrente=derivados["liquidez_corrente"],
+            liquidez_seca=derivados["liquidez_seca"],
+            dso=derivados["dso"],
+            graham_number=derivados["graham_number"],
             cobertura=cobertura,
         )
 

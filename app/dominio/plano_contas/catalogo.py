@@ -176,6 +176,24 @@ _SO_GERAL = (
         somar=True,
         observacao="DFC_MI sub-contas texto livre; somamos todas com 'deprecia' ou 'amortiza'",
     ),
+    # I5: ativo circulante — insumo de liquidez_corrente e liquidez_seca
+    RegraConta(
+        metrica="ativo_circulante",
+        demonstracao=BPA,
+        rotulos=("ativo circulante",),
+        codigos=("1.01",),
+        planos=(PLANO_GERAL,),
+        observacao="BPA 1.01; bancos/financeiras nao tem AC/PC na mesma semantica",
+    ),
+    # I5: passivo circulante — insumo de liquidez_corrente e liquidez_seca
+    RegraConta(
+        metrica="passivo_circulante",
+        demonstracao=BPP,
+        rotulos=("passivo circulante",),
+        codigos=("2.01",),
+        planos=(PLANO_GERAL,),
+        observacao="BPP 2.01; bancos/financeiras nao tem AC/PC na mesma semantica",
+    ),
 )
 
 REGRAS: tuple[RegraConta, ...] = _ESTAVEIS + _SO_GERAL
@@ -190,6 +208,12 @@ DERIVADAS: dict[str, tuple[str, ...]] = {
     "margem_liquida": ("lucro_liquido", "receita_liquida"),
     "divida_liquida": ("divida_bruta", "caixa_equivalentes"),
     "fluxo_caixa_livre": ("fluxo_caixa_operacional", "fluxo_caixa_investimento"),
+    # Fase 4 — indicadores derivados adicionais
+    "cobertura_juros": ("ebit", "resultado_financeiro"),
+    "liquidez_corrente": ("ativo_circulante", "passivo_circulante"),
+    "liquidez_seca": ("ativo_circulante", "estoques", "passivo_circulante"),
+    "dso": ("contas_a_receber", "receita_liquida"),
+    "graham_number": ("lpa", "vpa"),
 }
 
 # capex nao e extraivel: as contas 6.02.xx sao ST_CONTA_FIXA='N', ou seja texto

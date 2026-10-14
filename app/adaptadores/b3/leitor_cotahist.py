@@ -77,6 +77,7 @@ class LeitorCotahist:
                     volume=_inteiro(linha[152:170]),
                     volume_financeiro=_decimal_centavos(linha[170:188]),
                     nome_resumido=linha[27:39].strip() or None,
+                    moeda_referencia=linha[52:56].strip() or "BRL",
                 )
             )
         return resultado

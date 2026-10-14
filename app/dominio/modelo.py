@@ -192,6 +192,9 @@ class Indicadores:
     despesas_pessoal: Decimal | None = None
     # D5: DFC_MI fragmento 'deprecia'+'amortiza' — sub-contas nao padronizadas
     depreciacao_amortizacao: Decimal | None = None
+    # I5 insumos: BPA 1.01 / BPP 2.01 — base de liquidez_corrente e liquidez_seca
+    ativo_circulante: Decimal | None = None
+    passivo_circulante: Decimal | None = None
 
     # derivados
     lpa: Decimal | None = None
@@ -202,6 +205,15 @@ class Indicadores:
     divida_liquida: Decimal | None = None
     fluxo_caixa_livre: Decimal | None = None
     ebitda: Decimal | None = None
+    # I1: EBIT / |resultado_financeiro| — so calculado quando RF e negativo
+    cobertura_juros: Decimal | None = None
+    # I5: liquidez_corrente = AC/PC; liquidez_seca = (AC - Estoques)/PC
+    liquidez_corrente: Decimal | None = None
+    liquidez_seca: Decimal | None = None
+    # I6: DSO — prazo medio de recebimento em dias (contas_a_receber / receita * 365)
+    dso: Decimal | None = None
+    # I8: Graham Number sqrt(22.5 * LPA * VPA) — valor intrinseco classico
+    graham_number: Decimal | None = None
 
     fonte: str = "CVM"
     cobertura: dict = field(default_factory=dict)

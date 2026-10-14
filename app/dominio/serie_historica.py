@@ -21,6 +21,9 @@ class CandleB3:
     # C3: NOMRES pos 28-39 (1-based). Util como fallback de nome para
     # instrumentos sem cadastro CVM (CRIs, FIIs recentes, BDRs).
     nome_resumido: str | None = None
+    # C4: MODREF pos 53-56 (1-based). Moeda de referencia da cotacao.
+    # "USD " = BDR; "BRL " = ativo denominado em reais. Padrao "BRL".
+    moeda_referencia: str = "BRL"
 
 
 @dataclass(frozen=True)

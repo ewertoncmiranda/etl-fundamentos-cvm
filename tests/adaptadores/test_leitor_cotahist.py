@@ -162,3 +162,23 @@ def test_bid_ask_zerado_retorna_none():
     o = LeitorCotahist().ler_opcoes_linhas([linha], {"PETRA225"})[0]
     assert o.melhor_oferta_compra is None
     assert o.melhor_oferta_venda is None
+
+
+# --- C4: moeda_referencia (MODREF pos 53-56, 1-based) ---
+
+def _linha_cotahist_com_modref(modref: str) -> str:
+    linha = list(_linha_cotahist())
+    # MODREF: pos 53-56 (1-based) = indices 52:56 (0-based), 4 chars
+    linha[52:56] = list(modref.ljust(4)[:4])
+    return "".join(linha)
+
+
+def test_candle_moeda_referencia_usd_para_bdr():
+    linhas = [_linha_cotahist_com_modref("USD ")]
+    candle = LeitorCotahist().ler_linhas(linhas, {"PETR4"})[0]
+    assert candle.moeda_referencia == "USD"
+
+
+def test_candle_moeda_referencia_padrao_brl():
+    candle = LeitorCotahist().ler_linhas([_linha_cotahist()], {"PETR4"})[0]
+    assert candle.moeda_referencia == "BRL"
