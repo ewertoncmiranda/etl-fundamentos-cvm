@@ -16,7 +16,7 @@ padroniza a descricao das contas obrigatorias mesmo quando a posicao muda.
 
 from __future__ import annotations
 
-from app.dominio.modelo import BPA, BPP, DFC_MI, DRE, PLANO_GERAL
+from app.dominio.modelo import BPA, BPP, DFC_MI, DRE, DVA, PLANO_GERAL
 from app.dominio.plano_contas.regra import RegraConta
 
 # --- estaveis nos tres planos ----------------------------------------------
@@ -81,6 +81,14 @@ _ESTAVEIS = (
         ),
         codigos=("6.02",),
     ),
+    # E1: aliquota efetiva real (substitui constante ALIQUOTA_NOMINAL=0.34)
+    RegraConta(
+        metrica="impostos_dva",
+        demonstracao=DVA,
+        rotulos=("impostos, taxas e contribuicoes", "impostos e contribuicoes", "tributos"),
+        codigos=("7.08.02",),
+        observacao="IR+CSLL reais da DVA; negativo = despesa; substitui ALIQUOTA_NOMINAL=0.34",
+    ),
 )
 
 # --- exclusivas do plano GERAL ---------------------------------------------
@@ -112,6 +120,25 @@ _SO_GERAL = (
         planos=(PLANO_GERAL,),
         somar=True,
         observacao="circulante + nao circulante; banco nao tem divida nesse sentido",
+    ),
+    # D1: resultado financeiro liquido (receitas - despesas financeiras)
+    RegraConta(
+        metrica="resultado_financeiro",
+        demonstracao=DRE,
+        rotulos=("resultado financeiro", "receitas financeiras", "despesas financeiras"),
+        codigos=("3.06", "3.07"),
+        planos=(PLANO_GERAL,),
+        somar=True,
+        observacao="3.06+3.07: negativo = despesa financeira liquida; excluido de bancos",
+    ),
+    # D2: passivo nao circulante (dividas LP — exclui bancos/financeiras)
+    RegraConta(
+        metrica="passivo_nao_circulante",
+        demonstracao=BPP,
+        rotulos=("passivo nao circulante",),
+        codigos=("2.02",),
+        planos=(PLANO_GERAL,),
+        observacao="2.02 no banco e Passivos Financeiros Nao Circulantes (outra natureza)",
     ),
 )
 

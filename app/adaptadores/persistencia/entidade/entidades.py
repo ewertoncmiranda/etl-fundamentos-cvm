@@ -49,6 +49,8 @@ class EmpresaEntity(MixinCarimbo, Base):
     denominacao: Mapped[str] = mapped_column(String(200), nullable=False)
     setor: Mapped[str | None] = mapped_column(String(60))
     plano_contas: Mapped[str] = mapped_column(String(20), nullable=False, default="GERAL")
+    cnae: Mapped[str | None] = mapped_column(String(7))
+    grupo_economico: Mapped[str | None] = mapped_column(String(200))
 
 
 class TickerEntity(MixinCarimbo, Base):
@@ -135,6 +137,9 @@ class IndicadorFundamentalistaEntity(MixinCarimbo, Base):
     fluxo_caixa_operacional: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     capex: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
     acoes_ex_tesouraria: Mapped[int | None] = mapped_column(BigInteger)
+    resultado_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    passivo_nao_circulante: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
+    impostos_dva: Mapped[Numeric | None] = mapped_column(Numeric(24, 2))
 
     lpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
     vpa: Mapped[Numeric | None] = mapped_column(Numeric(18, 6))
@@ -190,3 +195,37 @@ class SerieHistoricaEntity(MixinCarimbo, Base):
     volume: Mapped[int | None] = mapped_column(BigInteger)
     fonte: Mapped[str] = mapped_column(String(30), nullable=False, default="B3")
     detalhes_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class OpcaoB3DiariaEntity(MixinCarimbo, Base):
+    """Espelho de opcao_b3_diaria (schema gerenciado pelo infra repo)."""
+
+    __tablename__ = "opcao_b3_diaria"
+    __table_args__ = (
+        UniqueConstraint("simbolo", "data_pregao", name="uq_opcao_b3_diaria"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    simbolo: Mapped[str] = mapped_column(String(12), nullable=False)
+    bdi: Mapped[str] = mapped_column(String(2), nullable=False)
+    data_pregao: Mapped[Date] = mapped_column(Date, nullable=False)
+    data_vencimento: Mapped[Date] = mapped_column(Date, nullable=False)
+    preco_exercicio: Mapped[Numeric] = mapped_column(Numeric(14, 4), nullable=False)
+    abertura: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    maxima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    minima: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    fechamento: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    preco_medio: Mapped[Numeric | None] = mapped_column(Numeric(14, 4))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    numero_negocios: Mapped[int | None] = mapped_column(Integer)
+    volume_financeiro: Mapped[Numeric | None] = mapped_column(Numeric(22, 2))
+    fator_cotacao: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    isin: Mapped[str | None] = mapped_column(String(12))
+    ativo_objeto: Mapped[str | None] = mapped_column(String(12))
+    tipo_opcao: Mapped[str | None] = mapped_column(String(4))
+    status_validacao: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="LEGADO_NAO_VALIDADO"
+    )
+    motivo_rejeicao: Mapped[str | None] = mapped_column(String(80))
+    # C1 Phase-0: adicionado por V36 — coluna opcional ate a migracao ser aplicada
+    indice_correcao: Mapped[str | None] = mapped_column(String(1))

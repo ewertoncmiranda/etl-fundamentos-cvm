@@ -25,6 +25,7 @@ BPA = "BPA"
 BPP = "BPP"
 DRE = "DRE"
 DFC_MI = "DFC_MI"
+DVA = "DVA"
 
 TIPO_DOC_DFP = "DFP"
 TIPO_DOC_ITR = "ITR"
@@ -75,6 +76,10 @@ class Empresa:
     cd_cvm: str | None = None
     setor: str | None = None
     plano_contas: str = PLANO_GERAL
+    # F1: Codigo_CNAE da FCA (ex.: "6619-3/99")
+    cnae: str | None = None
+    # F2: Grupo_Economico da FCA (ex.: "PETROBRAS")
+    grupo_economico: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +176,12 @@ class Indicadores:
     fluxo_caixa_operacional: Decimal | None = None
     capex: Decimal | None = None
     acoes_ex_tesouraria: int | None = None
+    # D1: DRE 3.06+3.07 (resultado financeiro liquido)
+    resultado_financeiro: Decimal | None = None
+    # D2: BPP 2.02 (passivo nao circulante — exclui bancos/financeiras)
+    passivo_nao_circulante: Decimal | None = None
+    # E1: DVA 7.08.02 (aliquota efetiva real; substitui ALIQUOTA_NOMINAL=0.34)
+    impostos_dva: Decimal | None = None
 
     # derivados
     lpa: Decimal | None = None

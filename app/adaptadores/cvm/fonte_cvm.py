@@ -20,6 +20,7 @@ from app.dominio.modelo import (
     BPP,
     DFC_MI,
     DRE,
+    DVA,
     GRUPO_CONSOLIDADO,
     GRUPO_INDIVIDUAL,
     TIPO_DOC_DFP,
@@ -32,7 +33,7 @@ from app.dominio.modelo import (
 from app.dominio.texto import normalizar
 
 # Nome interno da demonstracao -> sufixo do arquivo da CVM
-SUFIXO_DEMONSTRACAO = {BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI"}
+SUFIXO_DEMONSTRACAO = {BPA: "BPA", BPP: "BPP", DRE: "DRE", DFC_MI: "DFC_MI", DVA: "DVA"}
 
 PACOTE_DFP = "DFP"
 PACOTE_FCA = "FCA"
@@ -122,6 +123,8 @@ class FonteCvm:
                     denominacao=(linha.get("Nome_Empresarial") or "").strip(),
                     cd_cvm=(linha.get("Codigo_CVM") or "").strip() or None,
                     setor=(linha.get("Setor_Atividade") or "").strip() or None,
+                    cnae=(linha.get("Codigo_CNAE") or "").strip() or None,
+                    grupo_economico=(linha.get("Grupo_Economico") or "").strip() or None,
                 )
         return saida
 

@@ -28,6 +28,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     ExecucaoEntity,
     FatoContabilEntity,
     IndicadorFundamentalistaEntity,
+    OpcaoB3DiariaEntity,
     SerieHistoricaEntity,
     TickerEntity,
 )
@@ -39,7 +40,7 @@ from app.dominio.modelo import (
     LinhaContabil,
     Ticker,
 )
-from app.dominio.serie_historica import CandleB3
+from app.dominio.serie_historica import CandleB3, OpcaoB3
 from app.dominio.texto import normalizar
 
 # Grava em blocos para nao montar um INSERT gigante nem estourar max_allowed_packet
@@ -94,6 +95,8 @@ class RepositorioCadastroSql:
                 "denominacao": e.denominacao or e.cnpj,
                 "setor": e.setor,
                 "plano_contas": e.plano_contas,
+                "cnae": e.cnae,
+                "grupo_economico": e.grupo_economico,
             }
             for e in empresas
         ]
@@ -101,7 +104,7 @@ class RepositorioCadastroSql:
             db,
             EmpresaEntity,
             registros,
-            ("cd_cvm", "denominacao", "setor", "plano_contas"),
+            ("cd_cvm", "denominacao", "setor", "plano_contas", "cnae", "grupo_economico"),
         )
 
     def salvar_tickers(self, db: Any, tickers: Sequence[Ticker]) -> int:
@@ -190,6 +193,9 @@ class RepositorioIndicadorSql:
         "fluxo_caixa_operacional",
         "capex",
         "acoes_ex_tesouraria",
+        "resultado_financeiro",
+        "passivo_nao_circulante",
+        "impostos_dva",
         "lpa",
         "vpa",
         "roe",
@@ -223,6 +229,9 @@ class RepositorioIndicadorSql:
                 "fluxo_caixa_operacional": i.fluxo_caixa_operacional,
                 "capex": i.capex,
                 "acoes_ex_tesouraria": i.acoes_ex_tesouraria,
+                "resultado_financeiro": i.resultado_financeiro,
+                "passivo_nao_circulante": i.passivo_nao_circulante,
+                "impostos_dva": i.impostos_dva,
                 "lpa": i.lpa,
                 "vpa": i.vpa,
                 "roe": i.roe,
@@ -274,6 +283,82 @@ class RepositorioSeriesSql:
                 "fechamento_ajustado", "volume", "fonte", "detalhes_json",
             ),
         )
+
+
+class RepositorioOpcaoSql:
+    """Grava cotacoes diarias de opcoes da B3 (tabela opcao_b3_diaria).
+
+    indice_correcao (C1/Phase-0) e gravado apenas se a coluna ja existe no DB
+    (migracao V36 pode estar atrasada em relacao ao deploy do ETL).
+    """
+
+    _COLUNAS_FIXAS = (
+        "bdi",
+        "data_vencimento",
+        "preco_exercicio",
+        "abertura",
+        "maxima",
+        "minima",
+        "fechamento",
+        "preco_medio",
+        "volume",
+        "numero_negocios",
+        "volume_financeiro",
+        "fator_cotacao",
+        "isin",
+        "ativo_objeto",
+        "tipo_opcao",
+        "status_validacao",
+        "motivo_rejeicao",
+    )
+    _COLUNAS_OPCIONAIS = ("indice_correcao",)
+
+    def _colunas_existentes(self, db: Any) -> set[str]:
+        from sqlalchemy import text
+
+        resultado = db.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'opcao_b3_diaria'"
+            )
+        )
+        return {r[0] for r in resultado}
+
+    def salvar_opcoes(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        if not opcoes:
+            return 0
+        colunas_db = self._colunas_existentes(db)
+        tem_opt = {c for c in self._COLUNAS_OPCIONAIS if c in colunas_db}
+
+        registros = []
+        for o in opcoes:
+            reg: dict[str, Any] = {
+                "simbolo": o.simbolo,
+                "bdi": o.bdi,
+                "data_pregao": o.data_pregao,
+                "data_vencimento": o.data_vencimento,
+                "preco_exercicio": o.preco_exercicio,
+                "abertura": o.abertura,
+                "maxima": o.maxima,
+                "minima": o.minima,
+                "fechamento": o.fechamento,
+                "preco_medio": o.preco_medio,
+                "volume": o.volume,
+                "numero_negocios": o.numero_negocios,
+                "volume_financeiro": o.volume_financeiro,
+                "fator_cotacao": o.fator_cotacao,
+                "isin": o.isin,
+                "ativo_objeto": o.ativo_objeto,
+                "tipo_opcao": o.tipo_opcao,
+                "status_validacao": o.status_validacao,
+                "motivo_rejeicao": o.motivo_rejeicao,
+            }
+            if "indice_correcao" in tem_opt:
+                reg["indice_correcao"] = o.indice_correcao
+            registros.append(reg)
+
+        colunas_atualizar = list(self._COLUNAS_FIXAS) + sorted(tem_opt)
+        return _upsert(db, OpcaoB3DiariaEntity, registros, colunas_atualizar)
 
 
 class RepositorioExecucaoSql:
