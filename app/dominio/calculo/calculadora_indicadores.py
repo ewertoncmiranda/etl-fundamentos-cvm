@@ -89,7 +89,8 @@ class CalculadoraIndicadores:
             # I1: cobertura de juros — so faz sentido quando RF e negativo (despesa liquida)
             "cobertura_juros": (
                 None
-                if ebit is None or resultado_financeiro is None or Decimal(resultado_financeiro) >= 0
+                if ebit is None or resultado_financeiro is None
+                or Decimal(resultado_financeiro) >= 0
                 else _divide(Decimal(ebit), abs(Decimal(resultado_financeiro)))
             ),
             # I5: liquidez_corrente e liquidez_seca (excluem estoques)

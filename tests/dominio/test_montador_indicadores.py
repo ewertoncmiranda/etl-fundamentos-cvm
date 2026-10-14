@@ -235,16 +235,11 @@ class TestCalculadoraIndicadores:
         assert derivados["dso"] == Decimal("36.5")
 
     def test_graham_number_positivo(self):
-        derivados = CalculadoraIndicadores().calcular(
-            {},
-            acoes_ex_tesouraria=None,
-        )
+        import math
+
         from app.dominio.calculo.calculadora_indicadores import _graham_number
-        from decimal import Decimal
 
         result = _graham_number(Decimal("2"), Decimal("8"))
-
-        import math
         esperado = Decimal(str(math.sqrt(22.5 * 2 * 8))).quantize(Decimal("0.0001"))
         assert result == esperado
 
