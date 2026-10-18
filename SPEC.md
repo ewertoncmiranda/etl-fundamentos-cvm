@@ -473,3 +473,25 @@ Entregar dados suficientes para o front responder “por que este ticker está o
 | `registrosVencimento9999` | registros com vencimento sentinela/inválido |
 | `ativosComCadeia` | ativos-objeto com ao menos uma opção válida no último pregão |
 | `prefixosSuspeitos` | maiores prefixos rejeitados por parecerem ETF/FII/ação comum |
+
+---
+
+## Plano OPDB: opções consistentes e persistência de Carteiras — escopo ETL (2026-10-17)
+
+**Status:** PLANEJADO · Plano integrado e sequência sem colisões: `infra-b3-ecossytem/SPEC.md`, plano OPDB/CARTDB. O ETL não persiste Carteiras, identidade, operações do investidor nem recebimentos individuais; sua responsabilidade possível limita-se a dados oficiais de mercado/eventos corporativos compartilhados.
+
+| ID | Tarefa | Dependência | Aceite | Status |
+|---|---|---|---|---|
+| OPDB-ETL-1 | Alinhar parser e repositório ao contrato canônico: `TPMERC 070/080` define `tipo_opcao`; `bdi` preserva CODBDI sem inferir tipo; novas escritas usam apenas `VALIDA`/`INVALIDA`; vencimento sentinela, strike e ativo-objeto inválidos permanecem `INVALIDA` com motivo, sem abortar lote válido | infra#OPDB-INFRA-1 | Fixture real cobre CALL, PUT, BDI independente, `9999-12-31`, strike inválido e símbolo não suportado; nenhum status gravado viola V41 | IMPLEMENTADO; 23 testes focados passaram (2026-10-18) |
+| OPDB-ETL-2 | Tornar a recomposição de `opcao_b3_diaria` vazia/contaminada idempotente dentro da carga COTAHIST do start único; manter candles à vista e opções como resultados de etapa observáveis separadamente | OPDB-ETL-1, infra#OPDB-INFRA-1 | Reexecução do mesmo arquivo não duplica; falha da etapa de opções não mascara sucesso dos candles; histórico pode ser reconstruído dos arquivos COTAHIST sem comando manual novo | IMPLEMENTADO; 3 testes focados e suíte completa passaram (2026-10-18) |
+| OPDB-ETL-3 | Registrar qualidade da cadeia por pregão e ativo-objeto, com totais válidos/rejeitados, motivo, último pregão, vencimentos e strikes válidos | OPDB-ETL-1 | Métricas distinguem ausência de opções de erro de ingestão e não declaram cadeia operacional sem registros válidos | IMPLEMENTADO; teste focado e suíte completa passaram (2026-10-18) |
+
+### Limites deste repositório
+
+Contrato físico autoritativo: `infra-b3-ecossytem/SPEC.md`, seção “Contrato canônico: opções”. Não emitir os status históricos `REJEITADA`, `INCOMPLETA` ou `LEGADO_NAO_VALIDADO`; motivo é um código opaco até 80 caracteres.
+
+- Não calcular estratégia, payoff ou recomendação de opções.
+- Não criar tabela nem migration: schema é responsabilidade exclusiva de `infra-b3-ecossytem`.
+- Carteiras e estado por usuário pertencem ao gestor/frontend. O COTAHIST fornece preços oficiais, não preço de compra do usuário. `provento_contabil` DFP/ITR não é distribuição efetivamente recebida.
+- `CARTDB-ETL-1` — identificar fonte oficial aprovada e, se disponível no ecossistema, ingerir eventos de distribuição por ativo (tipo, valor por ação, data ex/pagamento e referência da fonte), no start único existente, com carga inicial automática quando a tabela estiver vazia. Não gravar dono, quantidade elegível ou recebimento individual; esses dados são do gestor. Bloqueado até definir fonte/contrato; não confundir anúncio com pagamento.
+- Respeitar o start único e a regra DEC-AGT-1; reprocessamento automático deve ocorrer dentro da etapa existente.

@@ -26,9 +26,7 @@ BDI_LOTE_PADRAO = "02"
 # 35 no mercado a vista de lote padrao - visto no COTAHIST_A2026.
 BDI_BDR = "35"
 BDIS_ACEITOS = {BDI_LOTE_PADRAO, BDI_BDR}
-BDI_OPCAO_COMPRA_LEGADO = "12"
-BDI_OPCAO_VENDA_LEGADO = "14"
-BDIS_OPCAO_LEGADO = {BDI_OPCAO_COMPRA_LEGADO, BDI_OPCAO_VENDA_LEGADO}
+BDIS_OPCAO_LEGADO = {"12", "14"}
 MERCADO_OPCAO_COMPRA = "070"
 MERCADO_OPCAO_VENDA = "080"
 MERCADOS_OPCAO = {MERCADO_OPCAO_COMPRA, MERCADO_OPCAO_VENDA}
@@ -38,10 +36,8 @@ MESES_CALL = set("ABCDEFGHIJKL")
 MESES_PUT = set("MNOPQRSTUVWX")
 VENCIMENTO_SENTINELA = date(9999, 12, 31)
 
-# Opcoes: BDI 12=call, 14=put; TPMERC 070=compra, 080=venda
-BDI_CALL = "12"
-BDI_PUT = "14"
-MERCADOS_OPCOES = {"070", "080"}
+# CODBDI 12/14 foi usado no legado como pista para localizar registros
+# suspeitos; nao determina tipo e nao e fonte de verdade de CALL/PUT.
 
 
 def _inteiro(texto: str) -> int:

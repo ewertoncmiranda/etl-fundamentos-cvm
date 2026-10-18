@@ -100,7 +100,15 @@ class RepositorioSeries(Protocol):
 
 
 class RepositorioOpcao(Protocol):
+    def precisa_recomposicao(self, db: Any, desde: date) -> bool:
+        """True quando a janela de reconstrução está vazia ou ainda contaminada."""
+        ...
+
     def salvar_opcoes_b3(self, db: Any, opcoes: Sequence[OpcaoB3]) -> int:
+        ...
+
+    def invalidar_legado_residual(self, db: Any, ano: int) -> int:
+        """Desativa legado/inconsistências não reencontrados na fonte oficial."""
         ...
 
 

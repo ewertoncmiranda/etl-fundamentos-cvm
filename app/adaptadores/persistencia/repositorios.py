@@ -621,8 +621,57 @@ class RepositorioOpcaoSql:
     # C1/C2: adicionadas por V36/V37; opcionais ate a migracao chegar
     COLUNAS_OPT_EXTRAS = ("indice_correcao", "melhor_oferta_compra", "melhor_oferta_venda")
 
+    def precisa_recomposicao(self, db: Any, desde: date) -> bool:
+        """Detecta tabela vazia ou registros legados/inconsistentes na janela recente."""
+        total = int(db.execute(
+            text("SELECT COUNT(*) FROM opcao_b3_diaria WHERE data_pregao >= :desde"),
+            {"desde": desde},
+        ).scalar() or 0)
+        if total == 0:
+            return True
+
+        colunas = self._colunas_opcionais_existentes(db)
+        if not set(self.COLUNAS_OPT_VALIDACAO).issubset(colunas):
+            return False
+
+        suspeitos = int(db.execute(
+            text(
+                "SELECT COUNT(*) FROM opcao_b3_diaria WHERE data_pregao >= :desde AND ("
+                "status_validacao = 'LEGADO_NAO_VALIDADO' OR ("
+                "status_validacao = 'VALIDA' AND (data_vencimento = '9999-12-31' "
+                "OR preco_exercicio <= 0 OR ativo_objeto IS NULL OR ativo_objeto = '' "
+                "OR tipo_opcao IS NULL OR tipo_opcao NOT IN ('CALL', 'PUT'))))"
+            ),
+            {"desde": desde},
+        ).scalar() or 0)
+        return suspeitos > 0
+
+    def invalidar_legado_residual(self, db: Any, ano: int) -> int:
+        """Mantém não encontrados no COTAHIST, mas impede que sejam operacionais."""
+        colunas = self._colunas_opcionais_existentes(db)
+        if not set(self.COLUNAS_OPT_VALIDACAO).issubset(colunas):
+            return 0
+
+        inicio, fim = date(ano, 1, 1), date(ano + 1, 1, 1)
+        resultado = db.execute(
+            text(
+                "UPDATE opcao_b3_diaria SET motivo_rejeicao = CASE "
+                "WHEN status_validacao = 'LEGADO_NAO_VALIDADO' "
+                "THEN 'legado_nao_encontrado_no_cotahist' "
+                "ELSE 'registro_preexistente_inconsistente' END, "
+                "status_validacao = 'INVALIDA' "
+                "WHERE data_pregao >= :inicio AND data_pregao < :fim AND ("
+                "status_validacao = 'LEGADO_NAO_VALIDADO' OR ("
+                "status_validacao = 'VALIDA' AND (data_vencimento = '9999-12-31' "
+                "OR preco_exercicio <= 0 OR ativo_objeto IS NULL OR ativo_objeto = '' "
+                "OR tipo_opcao IS NULL OR tipo_opcao NOT IN ('CALL', 'PUT'))))"
+            ),
+            {"inicio": inicio, "fim": fim},
+        )
+        return int(resultado.rowcount or 0)
+
     def _colunas_opcionais_existentes(self, db: Any) -> set[str]:
-        """OPT-INFRA-1 ainda pode nao existir no banco.
+        """Colunas de validação/extras podem faltar em banco anterior às migrations.
 
         Enquanto a migration nao chega, invalidos ficam fora do INSERT para a
         tabela antiga nao continuar contaminada. Quando as colunas existem, o
