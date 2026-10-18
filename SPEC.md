@@ -495,3 +495,18 @@ Contrato físico autoritativo: `infra-b3-ecossytem/SPEC.md`, seção “Contrato
 - Carteiras e estado por usuário pertencem ao gestor/frontend. O COTAHIST fornece preços oficiais, não preço de compra do usuário. `provento_contabil` DFP/ITR não é distribuição efetivamente recebida.
 - `CARTDB-ETL-1` — identificar fonte oficial aprovada e, se disponível no ecossistema, ingerir eventos de distribuição por ativo (tipo, valor por ação, data ex/pagamento e referência da fonte), no start único existente, com carga inicial automática quando a tabela estiver vazia. Não gravar dono, quantidade elegível ou recebimento individual; esses dados são do gestor. Bloqueado até definir fonte/contrato; não confundir anúncio com pagamento.
 - Respeitar o start único e a regra DEC-AGT-1; reprocessamento automático deve ocorrer dentro da etapa existente.
+
+---
+
+## Plano CARGA: entrada única e controle das cargas (2026-10-18)
+
+**Status:** PLANEJADO · **Contexto, contrato (V44, estados, regras de status, API) e ordem:** `infra-b3-ecossytem/SPEC.md`, Plano CARGA. Rótulo `CARGA-ETL-*`, reservado. **DEC-CARGA-1 aprovada (2026-10-18):** o ETL vira serviço HTTP interno, atrelado ao docker compose, e o endpoint passa a ser o start único (DEC-AGT-1).
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Arquivos | Depende | Aceite | Status |
+|---|---|---|---|---|---|
+| CARGA-ETL-1 | Status confiável por etapa (sem `_sem_erro`) | `main.py`; novo `app/aplicacao/resumo_etapa.py`; `tests/aplicacao/test_resumo_etapa.py` | — | Cada `Resultado*` (`ResultadoSeries`, `ResultadoTtm`, `ResultadoProventos`, `ResultadoEventos`, `ResultadoDaCarga`, comunicados) vira `ResumoEtapa(status, metricas, alertas, erros)` pelas regras do hub; erro nas opções do COTAHIST e ano processado com 0 candles saem com código 1; TTM/DVA com 0 gravados geram alerta no log; tudo pulado por ETag é `SEM_MUDANCA`; testes cobrem sucesso, ETag igual, zero linhas, erro nas opções e exceção | PLANEJADO |
+| CARGA-ETL-2 | Orquestrador único e registro da carga | novo `app/aplicacao/executar_carga.py` (catálogo de etapas, `ROTINA`/`COMPLETA`/`PARCIAL`); repositório de `carga_execucao`/`carga_etapa`; `etl_execucao.carga_execucao_id`; `main.py` passa a usar o orquestrador | CARGA-ETL-1, CARGA-INFRA-1 | `_rotina` e `_carregar_tudo` viram configurações do mesmo orquestrador; cada etapa é gravada ao começar e ao terminar (dá para acompanhar em andamento); lock `GET_LOCK` impede duas cargas; ao iniciar, execução órfã `EXECUTANDO` vira `INTERROMPIDA`; métricas registram o que foi carregado (anos, lidos, gravados, rejeitados por motivo) | PLANEJADO |
+| CARGA-ETL-3 | API HTTP interna | novo `app/adaptadores/http/` (servidor mínimo e rotas); testes de contrato | CARGA-ETL-2, DEC-CARGA-1 | `POST /cargas` (202/409), `GET /cargas/{id}`, `GET /cargas`, `GET /cargas/ultimas`, `GET /saude` conforme o hub; carga roda em segundo plano e o POST responde na hora; token `ETL_TOKEN` quando definido | PLANEJADO |
+| CARGA-ETL-4 | O servidor vira o start único | novo `app/servidor.py` (executável como `python -m app.servidor`), `main.py`, `Dockerfile`, `AGENTS.md` | CARGA-ETL-3 | O compose já sobe `python -m app.servidor` na porta `ETL_HTTP_PORT` (8080) com `GET /saude` para o health check (CARGA-INFRA-2); o `ENTRYPOINT` da imagem também passa a ser o servidor; o argparse (`--rotina`, `--ano`, `--simbolo`, `--forcar`) sai e vira parâmetro do `POST /cargas`; `ETL_VERSAO` grava `versao_etl`; AGENTS atualizado com a nova entrada única | PLANEJADO |
