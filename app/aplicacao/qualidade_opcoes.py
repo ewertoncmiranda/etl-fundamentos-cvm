@@ -27,17 +27,27 @@ def _tem_validacao(db) -> bool:
 
 
 def _totais(db, filtro: str, params: dict) -> dict:
-    linha = db.execute(text(
-        "SELECT COUNT(*) AS total, "
-        "SUM(status_validacao = 'VALIDA') AS validos, "
-        "SUM(status_validacao = 'LEGADO_NAO_VALIDADO') AS legado, "
-        "SUM(data_vencimento = :sentinela) AS venc9999, "
-        "COUNT(DISTINCT CASE WHEN status_validacao = 'VALIDA' THEN ativo_objeto END) AS ativos "
-        f"FROM opcao_b3_diaria {filtro}"), {"sentinela": VENCIMENTO_SENTINELA, **params}).mappings().one()
+    linha = db.execute(
+        text(
+            "SELECT COUNT(*) AS total, "
+            "SUM(status_validacao = 'VALIDA') AS validos, "
+            "SUM(status_validacao = 'LEGADO_NAO_VALIDADO') AS legado, "
+            "SUM(data_vencimento = :sentinela) AS venc9999, "
+            "COUNT(DISTINCT CASE WHEN status_validacao = 'VALIDA' "
+            "THEN ativo_objeto END) AS ativos "
+            f"FROM opcao_b3_diaria {filtro}"
+        ),
+        {"sentinela": VENCIMENTO_SENTINELA, **params},
+    ).mappings().one()
     total, validos = int(linha["total"] or 0), int(linha["validos"] or 0)
-    return {"totalRegistrosOpcoes": total, "registrosValidos": validos,
-            "registrosInvalidos": total - validos, "registrosLegadoNaoValidado": int(linha["legado"] or 0),
-            "registrosVencimento9999": int(linha["venc9999"] or 0), "ativosComCadeia": int(linha["ativos"] or 0)}
+    return {
+        "totalRegistrosOpcoes": total,
+        "registrosValidos": validos,
+        "registrosInvalidos": total - validos,
+        "registrosLegadoNaoValidado": int(linha["legado"] or 0),
+        "registrosVencimento9999": int(linha["venc9999"] or 0),
+        "ativosComCadeia": int(linha["ativos"] or 0),
+    }
 
 
 def avaliar(db) -> dict | None:
@@ -45,20 +55,62 @@ def avaliar(db) -> dict | None:
     if pregao is None:
         return None
     if not _tem_validacao(db):
-        return {"dataPregao": pregao.isoformat(), "estado": "SEM_VALIDACAO_NO_SCHEMA", "pronto": False}
+        return {
+            "dataPregao": pregao.isoformat(),
+            "estado": "SEM_VALIDACAO_NO_SCHEMA",
+            "pronto": False,
+        }
     ultimo = _totais(db, "WHERE data_pregao = :d", {"d": pregao})
-    motivos = [{"status": s, "motivo": m or "SEM_MOTIVO", "registros": int(n)} for s, m, n in db.execute(text(
-        "SELECT status_validacao, motivo_rejeicao, COUNT(*) AS n FROM opcao_b3_diaria "
-        "WHERE data_pregao = :d AND status_validacao <> 'VALIDA' "
-        "GROUP BY status_validacao, motivo_rejeicao ORDER BY n DESC LIMIT :t"), {"d": pregao, "t": TOP})]
-    prefixos = [{"prefixo": p, "registros": int(n)} for p, n in db.execute(text(
-        "SELECT LEFT(simbolo, 4) AS p, COUNT(*) AS n FROM opcao_b3_diaria "
-        "WHERE data_pregao = :d AND status_validacao <> 'VALIDA' GROUP BY p ORDER BY n DESC LIMIT :t"),
-        {"d": pregao, "t": TOP})]
+    motivos = [
+        {"status": s, "motivo": m or "SEM_MOTIVO", "registros": int(n)}
+        for s, m, n in db.execute(
+            text(
+                "SELECT status_validacao, motivo_rejeicao, COUNT(*) AS n "
+                "FROM opcao_b3_diaria "
+                "WHERE data_pregao = :d AND status_validacao <> 'VALIDA' "
+                "GROUP BY status_validacao, motivo_rejeicao ORDER BY n DESC LIMIT :t"
+            ),
+            {"d": pregao, "t": TOP},
+        )
+    ]
+    prefixos = [
+        {"prefixo": p, "registros": int(n)}
+        for p, n in db.execute(
+            text(
+                "SELECT LEFT(simbolo, 4) AS p, COUNT(*) AS n "
+                "FROM opcao_b3_diaria "
+                "WHERE data_pregao = :d AND status_validacao <> 'VALIDA' "
+                "GROUP BY p ORDER BY n DESC LIMIT :t"
+            ),
+            {"d": pregao, "t": TOP},
+        )
+    ]
+    cadeias = [{
+        "ativoObjeto": ativo,
+        "total": int(total),
+        "validas": int(validas or 0),
+        "invalidas": int(total) - int(validas or 0),
+        "vencimentos": int(vencimentos or 0),
+        "precoExercicioMinimo": str(strike_min) if strike_min is not None else None,
+        "precoExercicioMaximo": str(strike_max) if strike_max is not None else None,
+    } for ativo, total, validas, vencimentos, strike_min, strike_max in db.execute(text(
+        "SELECT ativo_objeto, COUNT(*), SUM(status_validacao = 'VALIDA'), "
+        "COUNT(DISTINCT CASE WHEN status_validacao = 'VALIDA' THEN data_vencimento END), "
+        "MIN(CASE WHEN status_validacao = 'VALIDA' THEN preco_exercicio END), "
+        "MAX(CASE WHEN status_validacao = 'VALIDA' THEN preco_exercicio END) "
+        "FROM opcao_b3_diaria WHERE data_pregao = :d AND ativo_objeto IS NOT NULL "
+        "GROUP BY ativo_objeto ORDER BY total DESC, ativo_objeto"), {"d": pregao})]
     pronto = ultimo["ativosComCadeia"] > 0 and ultimo["registrosLegadoNaoValidado"] == 0
-    return {"dataPregao": pregao.isoformat(), "estado": "CADEIA_VALIDA" if pronto else "SEM_CADEIA_VALIDA",
-            "pronto": pronto, "ultimoPregao": ultimo, "historico": _totais(db, "", {}),
-            "motivosPrincipais": motivos, "prefixosSuspeitos": prefixos}
+    return {
+        "dataPregao": pregao.isoformat(),
+        "estado": "CADEIA_VALIDA" if pronto else "SEM_CADEIA_VALIDA",
+        "pronto": pronto,
+        "ultimoPregao": ultimo,
+        "historico": _totais(db, "", {}),
+        "motivosPrincipais": motivos,
+        "prefixosSuspeitos": prefixos,
+        "cadeiasPorAtivoObjeto": cadeias,
+    }
 
 
 def registrar_qualidade_opcoes(uow, execucao, logger: Logger) -> dict | None:
@@ -72,8 +124,14 @@ def registrar_qualidade_opcoes(uow, execucao, logger: Logger) -> dict | None:
             linhas_carregadas=metricas.get("ultimoPregao", {}).get("registrosValidos", 0),
             mensagem_erro=json.dumps(metricas, ensure_ascii=False))
     ultimo = metricas.get("ultimoPregao", {})
-    logger.info("Qualidade opcoes %s: %s | validos=%s | invalidos=%s | legado=%s | ativos_com_cadeia=%s",
-                metricas["dataPregao"], metricas["estado"], ultimo.get("registrosValidos"),
-                ultimo.get("registrosInvalidos"), ultimo.get("registrosLegadoNaoValidado"),
-                ultimo.get("ativosComCadeia"))
+    logger.info(
+        "Qualidade opcoes %s: %s | validos=%s | invalidos=%s | legado=%s "
+        "| ativos_com_cadeia=%s",
+        metricas["dataPregao"],
+        metricas["estado"],
+        ultimo.get("registrosValidos"),
+        ultimo.get("registrosInvalidos"),
+        ultimo.get("registrosLegadoNaoValidado"),
+        ultimo.get("ativosComCadeia"),
+    )
     return metricas

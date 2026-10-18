@@ -184,6 +184,16 @@ def test_opcao_real_usa_tipo_de_mercado_e_deriva_ativo_objeto():
     assert put.ativo_objeto == "PETR"
 
 
+def test_bdi_legado_nao_altera_tipo_definido_por_tmerc():
+    (call,) = LeitorCotahist().ler_opcoes_linhas([
+        _linha_opcao("PETRA32", mercado="070", bdi="12"),
+    ])
+
+    assert call.status_validacao == "VALIDA"
+    assert call.bdi == "12"
+    assert call.tipo_opcao == "CALL"
+
+
 def test_bdi_12_ou_14_sem_mercado_de_opcao_vira_invalida_e_nao_cadeia():
     # BDI 12/14 isolado contaminava a tabela com ETF/FII e vencimento 9999.
     (registro,) = LeitorCotahist().ler_opcoes_linhas([
