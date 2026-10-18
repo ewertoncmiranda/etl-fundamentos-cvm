@@ -27,5 +27,5 @@ RUN useradd --create-home --uid 10001 etl \
     && chown -R etl:etl /var/cache/cvm /app
 USER etl
 
-# Job em lote: roda, reporta e encerra.
-ENTRYPOINT ["python", "main.py"]
+# Serviço interno: POST /cargas dispara os jobs controlados e registra o histórico.
+ENTRYPOINT ["python", "-m", "app.servidor"]

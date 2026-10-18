@@ -212,13 +212,13 @@ def montar_checagens(settings: Settings, logger: Logger):
 
     uow = UnidadeDeTrabalho(_montar_banco(settings, logger).fabrica_de_sessao)
 
-    def _executar() -> int:
+    def _executar() -> dict[str, int]:
         with uow.transacao() as db:
             resultado = executar_todas(db)
         total = sum(resultado.values())
         if total:
             logger.info("Checagens de qualidade: %d ocorrencia(s) gravada(s)", total)
-        return 0
+        return resultado
 
     return _executar
 

@@ -20,6 +20,7 @@ JANELA_RECOMPOSICAO_OPCOES_ANOS = 5
 class ResultadoSeries:
     anos_processados: list[int] = field(default_factory=list)
     anos_pulados: list[int] = field(default_factory=list)
+    candles_por_ano: dict[int, int] = field(default_factory=dict)
     candles_gravados: int = 0
     opcoes_gravadas: int = 0
     erros_opcoes: list[str] = field(default_factory=list)
@@ -120,6 +121,7 @@ class CarregarSeriesHistoricas:
                     linhas_carregadas=gravados,
                 )
             resultado.anos_processados.append(ano)
+            resultado.candles_por_ano[ano] = gravados
             resultado.candles_gravados += gravados
             self._logger.info("COTAHIST %s: %d candles B3 brutos gravados", ano, gravados)
             if isins:
