@@ -35,6 +35,7 @@ from app.adaptadores.persistencia.entidade.entidades import (
     SerieHistoricaEntity,
     TickerEntity,
 )
+from app.aplicacao.contexto_carga import carga_atual
 from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
 from app.dominio.comunicado import Comunicado
 from app.dominio.identidade import Identidade
@@ -918,6 +919,7 @@ class RepositorioExecucaoSql:
                 last_modified=last_modified,
                 tamanho_bytes=tamanho_bytes,
                 status=status,
+                carga_execucao_id=carga_atual(),
                 linhas_carregadas=linhas_carregadas,
                 mensagem_erro=mensagem_erro,
                 finalizado_em=datetime.now(),

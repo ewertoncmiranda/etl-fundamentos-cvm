@@ -198,6 +198,7 @@ class ExecucaoEntity(Base):
     last_modified: Mapped[str | None] = mapped_column(String(80))
     tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    carga_execucao_id: Mapped[str | None] = mapped_column(String(36))
     linhas_carregadas: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     mensagem_erro: Mapped[str | None] = mapped_column(Text)
     iniciado_em: Mapped[DateTime] = mapped_column(

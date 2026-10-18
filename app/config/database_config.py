@@ -76,14 +76,8 @@ class ConfiguracaoDeBanco:
                 "",
                 "Dentro de um container, localhost e o proprio container - nunca",
                 "vai haver MySQL ai. Provavelmente a imagem foi executada sem as",
-                "variaveis de ambiente. Rode pelo compose:",
-                "",
-                "  docker compose --profile etl run --rm etl-fundamentos-cvm",
-                "",
-                "ou passe DB_HOST explicitamente:",
-                "",
-                "  docker run --rm --network <rede> -e DB_HOST=mysql \\",
-                "      ewertonmiranda/etl-fundamentos-cvm",
+                "variaveis de ambiente. Confira DB_HOST/DB_PORT no compose e",
+                "reinicie a stack pela rotina de implantacao oficial.",
             ]
         elif executando_em_container():
             linhas += [
@@ -99,3 +93,10 @@ class ConfiguracaoDeBanco:
         if self._fabrica is None:
             self.conectar()
         return self._fabrica
+
+    @property
+    def engine(self) -> Engine:
+        if self._engine is None:
+            self.conectar()
+        assert self._engine is not None
+        return self._engine
