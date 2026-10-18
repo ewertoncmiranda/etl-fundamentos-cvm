@@ -16,6 +16,7 @@ from app.dominio.modelo import (
 )
 from app.dominio.montador_indicadores import MontadorDeIndicadores
 from app.dominio.ttm import MontadorTtm
+from app.dominio.versao_calculo import arquivo_inalterado, etag_com_versao
 from app.portas.fonte_documentos import FonteDeDocumentos
 from app.portas.repositorios import (
     RepositorioCadastro,
@@ -89,10 +90,11 @@ class CarregarTtm:
         assinatura = self._fonte.assinatura("ITR", ano)
         with self._uow.transacao() as db:
             etag = self._execucao.etag_da_ultima_execucao(db, FONTE_TTM, str(ano), arquivo)
-        if not self._forcar and assinatura.inalterado_em_relacao_a(etag):
+        if not self._forcar and arquivo_inalterado(FONTE_TTM, assinatura.etag, etag):
             with self._uow.transacao() as db:
                 self._execucao.registrar(
-                    db, FONTE_TTM, str(ano), arquivo, STATUS_PULADO, etag=assinatura.etag
+                    db, FONTE_TTM, str(ano), arquivo, STATUS_PULADO,
+                    etag=etag_com_versao(FONTE_TTM, assinatura.etag),
                 )
             resultado.anos_pulados.append(ano)
             return
@@ -165,7 +167,7 @@ class CarregarTtm:
                 self._indicador.salvar(db, indicadores)
             self._execucao.registrar(
                 db, FONTE_TTM, str(ano), arquivo, STATUS_SUCESSO,
-                etag=assinatura.etag,
+                etag=etag_com_versao(FONTE_TTM, assinatura.etag),
                 last_modified=assinatura.last_modified,
                 tamanho_bytes=assinatura.tamanho_bytes,
                 linhas_carregadas=len(indicadores),
