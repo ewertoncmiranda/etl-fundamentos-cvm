@@ -58,10 +58,7 @@ def criar_handler(orquestrador, repositorio, token: str | None):
                 self._json(404, {"erro": "rota não encontrada"})
                 return
             try:
-                tamanho = int(self.headers.get("Content-Length", "0"))
-                if tamanho < 1 or tamanho > MAX_BODY:
-                    raise ErroRequisicao("tamanho do corpo inválido")
-                dados = json.loads(self.rfile.read(tamanho))
+                dados = json.loads(_ler_corpo(self.headers, self.rfile))
                 status, corpo = orquestrador.disparar(dados)
                 self._json(status, corpo)
             except (json.JSONDecodeError, UnicodeDecodeError):
@@ -110,6 +107,59 @@ def criar_handler(orquestrador, repositorio, token: str | None):
             )
 
     return Handler
+
+
+def _ler_corpo(headers, rfile) -> bytes:
+    """Lê o corpo da requisição por Content-Length ou Transfer-Encoding chunked."""
+    # Pela RFC 9112, Transfer-Encoding prevalece sobre Content-Length quando
+    # ambos vêm; clientes como o RestClient do Java podem mandar só chunked.
+    codificacoes = ",".join(headers.get_all("Transfer-Encoding") or [])
+    if "chunked" in (parte.strip().lower() for parte in codificacoes.split(",")):
+        return _ler_chunked(rfile)
+    try:
+        tamanho = int(headers.get("Content-Length", "0"))
+    except ValueError:
+        raise ErroRequisicao("tamanho do corpo inválido") from None
+    if tamanho < 1 or tamanho > MAX_BODY:
+        raise ErroRequisicao("tamanho do corpo inválido")
+    return rfile.read(tamanho)
+
+
+# Linha de tamanho/trailer é curta; o limite evita ler memória sem fim.
+_MAX_LINHA_CHUNK = 1024
+
+
+def _ler_linha_chunk(rfile) -> bytes:
+    linha = rfile.readline(_MAX_LINHA_CHUNK + 1)
+    if len(linha) > _MAX_LINHA_CHUNK or not linha.endswith(b"\n"):
+        raise ErroRequisicao("corpo chunked inválido")
+    return linha.rstrip(b"\r\n")
+
+
+def _ler_chunked(rfile) -> bytes:
+    partes = []
+    total = 0
+    while True:
+        # Extensões após ';' não têm uso aqui e são ignoradas.
+        tamanho_hex = _ler_linha_chunk(rfile).split(b";", 1)[0].strip()
+        if not tamanho_hex or not re.fullmatch(rb"[0-9a-fA-F]+", tamanho_hex):
+            raise ErroRequisicao("tamanho de chunk inválido")
+        tamanho = int(tamanho_hex, 16)
+        if tamanho == 0:
+            break
+        total += tamanho
+        if total > MAX_BODY:
+            raise ErroRequisicao("tamanho do corpo inválido")
+        dados = rfile.read(tamanho)
+        if len(dados) != tamanho or rfile.read(2) != b"\r\n":
+            raise ErroRequisicao("corpo chunked inválido")
+        partes.append(dados)
+    # Consome o trailer para não deixar lixo na conexão keep-alive.
+    while _ler_linha_chunk(rfile):
+        pass
+    if total < 1:
+        raise ErroRequisicao("tamanho do corpo inválido")
+    return b"".join(partes)
 
 
 def _json_default(valor):
