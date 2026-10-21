@@ -94,7 +94,7 @@ def avaliar(db) -> dict | None:
         "precoExercicioMinimo": str(strike_min) if strike_min is not None else None,
         "precoExercicioMaximo": str(strike_max) if strike_max is not None else None,
     } for ativo, total, validas, vencimentos, strike_min, strike_max in db.execute(text(
-        "SELECT ativo_objeto, COUNT(*), SUM(status_validacao = 'VALIDA'), "
+        "SELECT ativo_objeto, COUNT(*) AS total, SUM(status_validacao = 'VALIDA'), "
         "COUNT(DISTINCT CASE WHEN status_validacao = 'VALIDA' THEN data_vencimento END), "
         "MIN(CASE WHEN status_validacao = 'VALIDA' THEN preco_exercicio END), "
         "MAX(CASE WHEN status_validacao = 'VALIDA' THEN preco_exercicio END) "

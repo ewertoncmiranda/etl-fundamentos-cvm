@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
 from datetime import date
 
 from app.aplicacao.qualidade_opcoes import avaliar
@@ -65,3 +67,47 @@ def test_qualidade_inclui_cobertura_por_pregao_e_ativo_objeto():
     assert metricas["motivosPrincipais"] == [{
         "status": "INVALIDA", "motivo": "strike_invalido", "registros": 1,
     }]
+
+
+def test_consulta_real_de_cadeias_ordena_total_e_desempata_por_ativo():
+    # Executa o SQL produzido por avaliar, não uma cópia, com dados sintéticos.
+    # Sem conexão com MySQL, rede ou persistência em disco.
+    with closing(sqlite3.connect(":memory:")) as conexao:
+        conexao.execute("""
+            CREATE TABLE opcao_b3_diaria (
+                data_pregao TEXT, ativo_objeto TEXT, status_validacao TEXT,
+                data_vencimento TEXT, preco_exercicio REAL
+            )
+        """)
+        conexao.executemany("INSERT INTO opcao_b3_diaria VALUES (?, ?, ?, ?, ?)", [
+            ("2026-10-16", "VALE", "VALIDA", "2026-11-20", 60),
+            ("2026-10-16", "VALE", "VALIDA", "2026-12-18", 65),
+            ("2026-10-16", "VALE", "INVALIDA", "9999-12-31", -1),
+            ("2026-10-16", "PETR", "VALIDA", "2026-11-20", 30),
+            ("2026-10-16", "PETR", "INVALIDA", "9999-12-31", 0),
+            ("2026-10-16", "ABCD", "INVALIDA", "9999-12-31", 0),
+            ("2026-10-16", "ABCD", "INVALIDA", "9999-12-31", 0),
+            ("2026-10-15", "ANTIGO", "VALIDA", "2026-11-20", 1),
+            ("2026-10-16", None, "VALIDA", "2026-11-20", 1),
+        ])
+
+        class DbComAgregacaoReal(DbQualidadeFake):
+            def execute(self, query, params=None):
+                if "GROUP BY ativo_objeto" in str(query):
+                    return ResultadoFake(rows=conexao.execute(
+                        str(query), {"d": params["d"].isoformat()}
+                    ).fetchall())
+                return super().execute(query, params)
+
+        cadeias = avaliar(DbComAgregacaoReal())["cadeiasPorAtivoObjeto"]
+
+    assert [c["ativoObjeto"] for c in cadeias] == ["VALE", "ABCD", "PETR"]
+    assert [c["total"] for c in cadeias] == [3, 2, 2]
+    assert cadeias[0]["validas"] == 2
+    assert cadeias[0]["invalidas"] == 1
+    assert cadeias[0]["vencimentos"] == 2
+    assert cadeias[0]["precoExercicioMinimo"] == "60.0"
+    assert cadeias[0]["precoExercicioMaximo"] == "65.0"
+    assert cadeias[1]["validas"] == 0
+    assert cadeias[1]["precoExercicioMinimo"] is None
+    assert cadeias[1]["precoExercicioMaximo"] is None
