@@ -13,6 +13,7 @@ from logging import Logger
 from app.dominio.identidade import resolver_tickers
 from app.dominio.modelo import STATUS_ERRO, STATUS_PULADO, STATUS_SUCESSO, Empresa, Ticker
 from app.dominio.montador_indicadores import MontadorDeIndicadores
+from app.dominio.versao_calculo import arquivo_inalterado, etag_com_versao
 from app.excecoes.excecoes import ErroPermanente, ErroTransitorio, FonteIndisponivel
 from app.portas.fonte_documentos import FonteDeDocumentos
 from app.portas.publicador import PublicadorDeEventos
@@ -143,7 +144,7 @@ class CarregarFundamentos:
                 db, FONTE_DFP, competencia, arquivo
             )
 
-        if not self._forcar and assinatura.inalterado_em_relacao_a(etag_anterior):
+        if not self._forcar and arquivo_inalterado(FONTE_DFP, assinatura.etag, etag_anterior):
             self._logger.info("DFP %s inalterado (ETag igual); pulando", ano)
             resultado.anos_pulados.append(ano)
             self._registrar(ano, STATUS_PULADO, assinatura=assinatura)
@@ -225,7 +226,7 @@ class CarregarFundamentos:
                 competencia=competencia,
                 arquivo=arquivo,
                 status=STATUS_SUCESSO,
-                etag=assinatura.etag,
+                etag=etag_com_versao(FONTE_DFP, assinatura.etag),
                 last_modified=assinatura.last_modified,
                 tamanho_bytes=assinatura.tamanho_bytes,
                 linhas_carregadas=linhas_gravadas,
@@ -278,7 +279,7 @@ class CarregarFundamentos:
                     competencia=str(ano),
                     arquivo=f"dfp_cia_aberta_{ano}.zip",
                     status=status,
-                    etag=getattr(assinatura, "etag", None),
+                    etag=etag_com_versao(FONTE_DFP, getattr(assinatura, "etag", None)),
                     last_modified=getattr(assinatura, "last_modified", None),
                     tamanho_bytes=getattr(assinatura, "tamanho_bytes", None),
                     mensagem_erro=mensagem,

@@ -15,29 +15,47 @@ em vez do read-then-write que o repo irmao faz (N+1 e sujeito a corrida).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from logging import Logger
 from typing import Any
 
-from sqlalchemy import bindparam, select, text
+from sqlalchemy import and_, bindparam, delete, func, or_, select, text
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.adaptadores.persistencia.entidade.entidades import (
     ComposicaoCapitalEntity,
+    BancoIndicadorTrimestralEntity,
     ComunicadoCvmEntity,
     CotacaoB3DiariaEntity,
+    DataExB3Entity,
+    CvmAuditorEntity,
+    CvmCadastroEntity,
+    CvmDividaValorMobiliarioEntity,
+    CvmNegociacaoAdministradorEntity,
     EmpresaEntity,
     ExecucaoEntity,
     FatoContabilEntity,
+    FundoPosicaoAcaoEntity,
     IndicadorFundamentalistaEntity,
+    NegociacaoB3DiariaEntity,
     OpcaoB3DiariaEntity,
     ProventoContabilEntity,
     SerieHistoricaEntity,
     TickerEntity,
+    TituloPublicoTaxaEntity,
 )
+from app.adaptadores.cvm.cda import PosicaoFundoAcao
 from app.aplicacao.contexto_carga import carga_atual
 from app.dominio.calculo.calculadora_multiplos_mercado import InsumoMercado, MetricaMercado
 from app.dominio.comunicado import Comunicado
+from app.dominio.fontes_publicas import (
+    cnpj14,
+    cortar,
+    hash_divida,
+    hash_negociacao,
+    texto_conversivel,
+)
 from app.dominio.identidade import Identidade
 from app.dominio.modelo import (
     STATUS_SUCESSO,
@@ -924,4 +942,301 @@ class RepositorioExecucaoSql:
                 mensagem_erro=mensagem_erro,
                 finalizado_em=datetime.now(),
             )
+        )
+
+
+class RepositorioFontesPublicasSql:
+    """Tabelas da V45 alimentadas por fontes publicas (FONTES-ETL-8).
+
+    Todos os `salvar_*` sao upserts pela chave unica da tabela: rodar duas vezes
+    o mesmo conteudo nao duplica nem altera a contagem. Registros duplicados
+    dentro da mesma chamada sao fundidos (o ultimo vale)."""
+
+    # -- Tesouro -----------------------------------------------------------
+
+    def salvar_taxas_tesouro(self, db: Any, taxas: Sequence[Any]) -> int:
+        linhas = {
+            (t.tipo.strip(), t.vencimento, t.data_base): {
+                "tipo": t.tipo.strip(), "vencimento": t.vencimento, "data_base": t.data_base,
+                "taxa_compra": t.taxa_compra, "taxa_venda": t.taxa_venda,
+                "pu_compra": t.pu_compra, "pu_venda": t.pu_venda, "pu_base": t.pu_base,
+            }
+            for t in taxas
+        }
+        return _upsert(
+            db, TituloPublicoTaxaEntity, list(linhas.values()),
+            ("taxa_compra", "taxa_venda", "pu_compra", "pu_venda", "pu_base"),
+        )
+
+    # -- FRE ---------------------------------------------------------------
+
+    def salvar_auditores(self, db: Any, auditores: Sequence[Any]) -> int:
+        linhas = {}
+        for a in auditores:
+            cnpj, cnpj_auditor = cnpj14(a.cnpj), cnpj14(a.cnpj_auditor)
+            chave = (cnpj, a.dt_referencia, cnpj_auditor, a.dt_inicio_contratacao)
+            linhas[chave] = {
+                "cnpj": cnpj, "data_referencia": a.dt_referencia, "versao": a.versao,
+                "cnpj_auditor": cnpj_auditor, "auditor": cortar(a.auditor, 200),
+                "data_inicio": a.dt_inicio_contratacao, "data_fim": a.dt_fim_contratacao,
+                "justificativa_substituicao": a.justificativa_substituicao,
+            }
+        return _upsert(
+            db, CvmAuditorEntity, list(linhas.values()),
+            ("versao", "auditor", "data_fim", "justificativa_substituicao"),
+        )
+
+    def salvar_dividas(self, db: Any, dividas: Sequence[Any]) -> int:
+        linhas = {}
+        for d in dividas:
+            tipo, ident = cortar(d.tipo, 100), cortar(d.identificacao, 200)
+            conversivel = texto_conversivel(d.conversivel)
+            hash_ = hash_divida(
+                tipo, ident, d.dt_emissao, d.dt_vencimento, d.quantidade, d.valor,
+                d.saldo_devedor, conversivel,
+            )
+            linhas[(cnpj14(d.cnpj), d.dt_referencia, d.versao, hash_)] = {
+                "cnpj": cnpj14(d.cnpj), "data_referencia": d.dt_referencia, "versao": d.versao,
+                "tipo": tipo, "identificacao": ident, "data_emissao": d.dt_emissao,
+                "data_vencimento": d.dt_vencimento, "quantidade": d.quantidade,
+                "valor": d.valor, "saldo_devedor": d.saldo_devedor,
+                "conversivel": conversivel, "hash_linha": hash_,
+            }
+        lista = list(linhas.values())
+        total = _upsert(db, CvmDividaValorMobiliarioEntity, lista, ("hash_linha",))
+        self._remover_versoes_antigas(db, CvmDividaValorMobiliarioEntity, lista)
+        return total
+
+    # -- VLMO --------------------------------------------------------------
+
+    def salvar_negociacoes(self, db: Any, negociacoes: Sequence[Any]) -> int:
+        linhas = {}
+        for n in negociacoes:
+            campos = (
+                cortar(n.tipo_empresa, 60), cortar(n.tipo_cargo, 120),
+                cortar(n.tipo_movimentacao, 120), cortar(n.tipo_operacao, 60),
+                cortar(n.tipo_ativo, 60), cortar(n.caracteristica, 120),
+            )
+            hash_ = hash_negociacao(
+                *campos, n.data_movimentacao, n.quantidade, n.preco_unitario, n.volume
+            )
+            linhas[(cnpj14(n.cnpj), n.data_referencia, n.versao, hash_)] = {
+                "cnpj": cnpj14(n.cnpj), "data_referencia": n.data_referencia,
+                "versao": n.versao, "data_entrega": n.data_entrega,
+                "tipo_empresa": campos[0], "tipo_cargo": campos[1],
+                "tipo_movimentacao": campos[2], "tipo_operacao": campos[3],
+                "tipo_ativo": campos[4], "caracteristica": campos[5],
+                "data_movimentacao": n.data_movimentacao, "quantidade": n.quantidade,
+                "preco_unitario": n.preco_unitario, "volume": n.volume,
+                "hash_linha": hash_,
+            }
+        lista = list(linhas.values())
+        total = _upsert(db, CvmNegociacaoAdministradorEntity, lista, ("data_entrega",))
+        self._remover_versoes_antigas(db, CvmNegociacaoAdministradorEntity, lista)
+        return total
+
+    def contar_negociacoes(self, db: Any) -> int:
+        return db.execute(
+            select(func.count()).select_from(CvmNegociacaoAdministradorEntity)
+        ).scalar_one()
+
+    @staticmethod
+    def _remover_versoes_antigas(db: Any, entidade: type, linhas: Sequence[dict]) -> None:
+        """Uma reapresentacao (versao maior) substitui a anterior: sem isto as
+        duas versoes ficariam na tabela e a compra liquida contaria em dobro."""
+        maior: dict[tuple, int] = {}
+        for linha in linhas:
+            chave = (linha["cnpj"], linha["data_referencia"])
+            maior[chave] = max(maior.get(chave, 0), linha["versao"])
+        pares = list(maior.items())
+        for lote in _em_lotes(pares, 200):
+            db.execute(
+                delete(entidade).where(
+                    or_(*[
+                        and_(
+                            entidade.cnpj == cnpj, entidade.data_referencia == ref,
+                            entidade.versao < versao,
+                        )
+                        for (cnpj, ref), versao in lote
+                    ])
+                )
+            )
+
+    # -- CDA ---------------------------------------------------------------
+
+    def salvar_posicoes_fundo(self, db: Any, posicoes: Sequence[Any]) -> int:
+        linhas = {}
+        for p in posicoes:
+            competencia = p.competencia.replace(day=1)
+            chave = (competencia, cnpj14(p.cnpj_fundo), p.simbolo)
+            linhas[chave] = {
+                "competencia": competencia, "cnpj_fundo": cnpj14(p.cnpj_fundo),
+                "simbolo": p.simbolo, "isin": cortar(p.isin, 12),
+                "quantidade": p.quantidade, "valor_mercado": p.valor_mercado,
+                "pl_fundo": p.pl_fundo,
+            }
+        return _upsert(
+            db, FundoPosicaoAcaoEntity, list(linhas.values()),
+            ("isin", "quantidade", "valor_mercado", "pl_fundo"),
+        )
+
+    def listar_posicoes_fundo(self, db: Any, competencia: date) -> list[PosicaoFundoAcao]:
+        """Posicoes de um mes (primeiro dia), prontas para `fluxo_por_ativo`."""
+        consulta = select(FundoPosicaoAcaoEntity).where(
+            FundoPosicaoAcaoEntity.competencia == competencia.replace(day=1)
+        )
+        return [
+            PosicaoFundoAcao(
+                competencia=e.competencia, cnpj_fundo=e.cnpj_fundo, simbolo=e.simbolo,
+                isin=e.isin or "", quantidade=e.quantidade or Decimal(0),
+                valor_mercado=e.valor_mercado or Decimal(0), pl_fundo=e.pl_fundo,
+            )
+            for e in db.execute(consulta).scalars()
+        ]
+
+    # -- cadastro CVM ------------------------------------------------------
+
+    def salvar_cadastros(self, db: Any, cadastros: Sequence[Any]) -> int:
+        """Upsert por cnpj das colunas que o leitor traz; codigo_cvm, denominacao e
+        as demais colunas da V45 nao sao tocadas (o CSV lido nao as fornece)."""
+        linhas = {
+            cnpj14(c.cnpj): {
+                "cnpj": cnpj14(c.cnpj), "situacao": cortar(c.situacao, 40),
+                "data_situacao": c.data_situacao, "setor_cvm": cortar(c.setor, 120),
+                "cnpj_auditor": cnpj14(c.cnpj_auditor), "auditor": cortar(c.auditor, 200),
+            }
+            for c in cadastros
+        }
+        return _upsert(
+            db, CvmCadastroEntity, list(linhas.values()),
+            ("situacao", "data_situacao", "setor_cvm", "cnpj_auditor", "auditor"),
+        )
+
+    def cadastros_gravados(self, db: Any) -> tuple[dict[str, Any], date | None]:
+        """Retrato anterior (para detectar troca de auditor) e a data dele."""
+        from app.adaptadores.cvm.cadastro import CadastroCvm
+
+        linhas = db.execute(select(CvmCadastroEntity)).scalars().all()
+        retrato = {
+            e.cnpj: CadastroCvm(
+                e.cnpj, e.situacao, e.data_situacao, e.setor_cvm, e.auditor, e.cnpj_auditor
+            )
+            for e in linhas
+        }
+        datas = [e.atualizado_em.date() for e in linhas if e.atualizado_em]
+        return retrato, (max(datas) if datas else None)
+
+    # -- IF.data -----------------------------------------------------------
+
+    def tickers_por_cnpj(self, db: Any) -> dict[str, str]:
+        """CNPJ (14 digitos) -> ticker ativo de menor ordem alfabetica (ITUB3 antes de
+        ITUB4); sem ticker o CNPJ nao aparece."""
+        saida: dict[str, str] = {}
+        consulta = (
+            select(TickerEntity.cnpj, TickerEntity.simbolo)
+            .where(TickerEntity.ativo.is_(True)).order_by(TickerEntity.simbolo)
+        )
+        for cnpj, simbolo in db.execute(consulta):
+            chave = cnpj14(cnpj)
+            if chave and chave not in saida:
+                saida[chave] = simbolo
+        return saida
+
+    def salvar_indicadores_banco(self, db: Any, indicadores: Sequence[Any]) -> int:
+        """`indicadores`: pares (IndicadoresIfData, cnpj14, simbolo|None). Valores
+        monetarios do IF.data (R$ mil) sao gravados em R$."""
+        mil = Decimal(1000)
+
+        def reais(v):
+            return None if v is None else v * mil
+
+        linhas = {}
+        for i, cnpj, simbolo in indicadores:
+            linhas[(cnpj, i.data_base)] = {
+                "cnpj": cnpj, "simbolo": simbolo, "data_base": i.data_base,
+                "basileia": i.basileia, "indice_capital_principal": i.indice_capital_principal,
+                "inadimplencia": i.inadimplencia, "roe": i.roe,
+                "ativo_total": reais(i.ativo_total),
+                "patrimonio_liquido": reais(i.patrimonio_liquido),
+                "carteira_credito": reais(i.carteira_credito), "origem": "IFDATA",
+            }
+        return _upsert(
+            db, BancoIndicadorTrimestralEntity, list(linhas.values()),
+            ("simbolo", "basileia", "indice_capital_principal", "inadimplencia", "roe",
+             "ativo_total", "patrimonio_liquido", "carteira_credito"),
+        )
+
+    # -- datas ex ----------------------------------------------------------
+
+    def contar_datas_ex(self, db: Any) -> int:
+        return db.execute(select(func.count()).select_from(DataExB3Entity)).scalar_one()
+
+    def linhas_com_marca_ex(self, db: Any, desde: date) -> list[Any]:
+        from app.aplicacao.datas_ex_b3 import LinhaMarcada
+
+        consulta = text(
+            "SELECT simbolo, data_pregao, marca_ex, abertura, fechamento, data_anterior, "
+            "fechamento_anterior FROM ("
+            " SELECT simbolo, data_pregao, marca_ex, abertura, fechamento,"
+            "  LAG(data_pregao) OVER (PARTITION BY simbolo ORDER BY data_pregao) data_anterior,"
+            "  LAG(fechamento) OVER (PARTITION BY simbolo ORDER BY data_pregao)"
+            "   fechamento_anterior"
+            " FROM cotacao_b3_diaria WHERE data_pregao >= :janela) t "
+            "WHERE marca_ex IS NOT NULL AND TRIM(marca_ex) <> '' AND data_pregao >= :desde "
+            "ORDER BY simbolo, data_pregao"
+        )
+        parametros = {"janela": desde - timedelta(days=15), "desde": desde}
+        return [
+            LinhaMarcada(r[0], r[1], r[2].strip().upper(), r[3], r[4], r[5], r[6])
+            for r in db.execute(consulta, parametros)
+        ]
+
+    def salvar_datas_ex(self, db: Any, eventos: Sequence[Any], versao: str) -> int:
+        linhas = {
+            (e.simbolo, e.data_ex, e.marca): {
+                "simbolo": e.simbolo, "data_ex": e.data_ex, "marca": e.marca, "tipo": e.tipo,
+                "fechamento_anterior": e.fechamento_anterior, "abertura_ex": e.abertura_ex,
+                "ajuste_implicito": e.ajuste_implicito, "ajuste_percentual": e.ajuste_percentual,
+                "versao_calculo": versao,
+            }
+            for e in eventos
+        }
+        # valor_declarado e origem_valor ficam fora: o gestor junta com proventos
+        return _upsert(
+            db, DataExB3Entity, list(linhas.values()),
+            ("tipo", "fechamento_anterior", "abertura_ex", "ajuste_implicito",
+             "ajuste_percentual", "versao_calculo"),
+        )
+
+    # -- demais mercados do COTAHIST ---------------------------------------
+
+    def contar_negociacoes_mercado(self, db: Any) -> int:
+        return db.execute(select(func.count()).select_from(NegociacaoB3DiariaEntity)).scalar_one()
+
+    def salvar_negociacoes_mercado(self, db: Any, negocios: Sequence[Any]) -> int:
+        linhas = {}
+        for n in negocios:
+            linhas[(n.simbolo, n.data_pregao, n.mercado)] = {
+                "simbolo": n.simbolo, "simbolo_base": n.simbolo_base,
+                "data_pregao": n.data_pregao, "tpmerc": n.mercado,
+                "prazo_termo_dias": n.prazo_termo, "indice_correcao": n.indice_correcao,
+                # opcao sobre indice informa o exercicio em pontos, nao em centavos
+                "preco_exercicio": (
+                    n.preco_exercicio if n.preco_exercicio is not None
+                    else n.preco_exercicio_pontos
+                ),
+                "abertura": n.abertura, "maxima": n.maxima, "minima": n.minima,
+                "fechamento": n.fechamento, "preco_medio": n.preco_medio,
+                "melhor_oferta_compra": n.melhor_oferta_compra,
+                "melhor_oferta_venda": n.melhor_oferta_venda, "volume": n.volume,
+                "numero_negocios": n.numero_negocios, "volume_financeiro": n.volume_financeiro,
+                "fator_cotacao": n.fator_cotacao, "isin": n.isin,
+                "dismes": n.numero_distribuicao,
+            }
+        return _upsert(
+            db, NegociacaoB3DiariaEntity, list(linhas.values()),
+            ("simbolo_base", "prazo_termo_dias", "indice_correcao", "preco_exercicio",
+             "abertura", "maxima", "minima", "fechamento", "preco_medio",
+             "melhor_oferta_compra", "melhor_oferta_venda", "volume", "numero_negocios",
+             "volume_financeiro", "fator_cotacao", "isin", "dismes"),
         )

@@ -17,10 +17,18 @@ from app.config.composicao import (
     montar_caso_de_uso,
     montar_checagens,
     montar_conciliacao,
-    montar_eventos_corporativos,
     montar_liquidez,
     montar_prontidao,
     montar_qualidade_opcoes,
+)
+from app.config.composicao_fontes import (
+    montar_carga_cadastro,
+    montar_carga_ifdata,
+    montar_eventos_e_datas_ex,
+    montar_carga_cda,
+    montar_carga_fre,
+    montar_carga_tesouro,
+    montar_carga_vlmo,
 )
 from app.config.settings import Settings
 from app.dominio.comunicado import CATEGORIAS_PADRAO
@@ -63,8 +71,26 @@ def criar_catalogo_etapas(settings: Settings, logger: Logger) -> dict:
             anos, simbolos, universo_backtest=not simbolos
         )
 
+    def tesouro(_anos, _simbolos, forcar):
+        return montar_carga_tesouro(settings, logger).executar(forcar)
+
+    def cvm_cadastro(_anos, _simbolos, forcar):
+        return montar_carga_cadastro(settings, logger).executar(forcar)
+
+    def ifdata(_anos, _simbolos, forcar):
+        return montar_carga_ifdata(settings, logger).executar(forcar)
+
+    def cvm_vlmo(anos, _simbolos, forcar):
+        return montar_carga_vlmo(settings, logger).executar(anos, forcar)
+
+    def cvm_fre(anos, _simbolos, forcar):
+        return montar_carga_fre(settings, logger).executar(anos, forcar)
+
+    def cvm_cda(_anos, _simbolos, forcar):
+        return montar_carga_cda(settings, logger).executar(forcar)
+
     def eventos(anos, _simbolos, _forcar):
-        return montar_eventos_corporativos(settings, logger).executar(anos or None)
+        return montar_eventos_e_datas_ex(settings, logger).executar(anos or None)
 
     def checagens(_anos, _simbolos, _forcar):
         return montar_checagens(settings, logger)()
@@ -79,6 +105,12 @@ def criar_catalogo_etapas(settings: Settings, logger: Logger) -> dict:
         "TTM": ttm,
         "IPE": ipe,
         "DVA": dva,
+        "TESOURO": tesouro,
+        "CVM_CADASTRO": cvm_cadastro,
+        "IFDATA": ifdata,
+        "CVM_VLMO": cvm_vlmo,
+        "CVM_FRE": cvm_fre,
+        "CVM_CDA": cvm_cda,
         "EVENTOS": eventos,
         "CHECAGENS": checagens,
     }

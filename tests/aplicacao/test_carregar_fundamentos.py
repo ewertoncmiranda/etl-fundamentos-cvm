@@ -24,6 +24,7 @@ from app.dominio.modelo import (
     Ticker,
 )
 from app.dominio.montador_indicadores import MontadorDeIndicadores
+from app.dominio.versao_calculo import etag_com_versao
 from app.dominio.plano_contas.classificador import ClassificadorDePlano
 from app.dominio.plano_contas.resolvedor import ResolvedorDeContas
 from app.excecoes.excecoes import ErroPermanente
@@ -209,7 +210,7 @@ class TestCarregarFundamentos:
     def test_etag_igual_pula_o_ano_sem_baixar_nada(self, linhas_wege3):
         """O mecanismo que faz uma execucao semanal sem novidade custar 3 HEAD."""
         fonte = _FonteFake(linhas_wege3, Assinatura("etag-igual", None, 100))
-        execucao = _RepositorioExecucaoFake(etag_anterior="etag-igual")
+        execucao = _RepositorioExecucaoFake(etag_anterior=etag_com_versao("CVM_DFP", "etag-igual"))
         indicador = _RepositorioIndicadorFake()
 
         resultado = montar(
@@ -229,6 +230,19 @@ class TestCarregarFundamentos:
         resultado = montar(fonte, _RepositorioUniversoFake(["WEGE3"]), execucao).executar([2025])
 
         assert resultado.anos_processados == [2025]
+
+    def test_etag_igual_de_versao_antiga_do_calculo_reprocessa_uma_vez(self, linhas_wege3):
+        """Arquivo da CVM igual, mas gravado antes do calculo atual (ETag cru): as
+        linhas precisam dos campos novos, entao o ano e reprocessado e passa a
+        gravar o ETag com a versao - a proxima carga volta a pular."""
+        fonte = _FonteFake(linhas_wege3, Assinatura("etag-igual", None, 100))
+        execucao = _RepositorioExecucaoFake(etag_anterior="etag-igual")
+
+        resultado = montar(fonte, _RepositorioUniversoFake(["WEGE3"]), execucao).executar([2025])
+
+        assert resultado.anos_processados == [2025]
+        sucesso = [r for r in execucao.registros if r["status"] == "SUCESSO"]
+        assert sucesso and sucesso[-1]["etag"] == etag_com_versao("CVM_DFP", "etag-igual")
 
     def test_universo_vazio_nao_processa_e_nao_quebra(self, linhas_wege3):
         resultado = montar(

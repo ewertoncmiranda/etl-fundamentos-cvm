@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.adaptadores.b3.cliente_http_b3 import ClienteHttpB3
-from app.adaptadores.b3.leitor_cotahist import LeitorCotahist
+from app.adaptadores.b3.leitor_cotahist import LeitorCotahist, NegocioMercadoB3
 from app.adaptadores.cvm.cache_local import CacheDeArquivos
 from app.adaptadores.cvm.cliente_http import Assinatura
 from app.dominio.serie_historica import CandleB3, OpcaoB3
@@ -42,3 +42,13 @@ class FonteB3:
             conteudo = self._cliente.baixar(nome)
             self._cache.gravar(nome, conteudo)
         return self._leitor.ler_opcoes_zip(conteudo)
+
+    def mercados(self, ano: int, usar_cache: bool = False) -> list[NegocioMercadoB3]:
+        """Demais mercados (012, 013, 017, 020, 030) do mesmo ZIP do ano."""
+        nome = self.caminho(ano)
+        if usar_cache and self._cache.tem(nome):
+            conteudo = self._cache.ler(nome)
+        else:
+            conteudo = self._cliente.baixar(nome)
+            self._cache.gravar(nome, conteudo)
+        return self._leitor.ler_mercados_zip(conteudo)

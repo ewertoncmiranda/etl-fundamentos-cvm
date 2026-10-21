@@ -24,6 +24,7 @@ from app.adaptadores.persistencia.repositorios import (
     RepositorioComunicadoSql,
     RepositorioExecucaoSql,
     RepositorioFatoContabilSql,
+    RepositorioFontesPublicasSql,
     RepositorioIdentidadeSql,
     RepositorioIndicadorSql,
     RepositorioMetricasMercadoSql,
@@ -93,12 +94,14 @@ def montar_carga_de_series(settings: Settings, logger: Logger) -> CarregarSeries
         atualizador_mercado=_montar_metricas_mercado(banco, logger),
         repositorio_identidade=RepositorioIdentidadeSql(),
         verificador_de_schema=VerificadorDeSchema(
-            ("cotacao_b3_diaria", "opcao_b3_diaria", "etl_execucao"),
+            ("cotacao_b3_diaria", "opcao_b3_diaria", "negociacao_b3_diaria", "etl_execucao"),
             colunas=COLUNAS_V16_COTAHIST,
         ),
         nome_do_banco=settings.db_name,
         fonte_opcoes=fonte_b3,
         repositorio_opcao=RepositorioOpcaoSql(),
+        fonte_mercados=fonte_b3,
+        repositorio_mercados=RepositorioFontesPublicasSql(),
     )
 
 
