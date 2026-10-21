@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -127,6 +128,31 @@ def _validar_opcao(
     return "VALIDA", ativo_objeto, tipo_opcao, None
 
 
+@dataclass(frozen=True)
+class NegocioMercadoB3:
+    simbolo: str
+    simbolo_base: str | None
+    mercado: str
+    data_pregao: date
+    isin: str | None
+    prazo_termo: int | None
+    indice_correcao: str | None
+    numero_distribuicao: int | None
+    preco_exercicio: Decimal | None
+    preco_exercicio_pontos: Decimal | None
+    abertura: Decimal
+    maxima: Decimal
+    minima: Decimal
+    fechamento: Decimal
+    preco_medio: Decimal | None
+    melhor_oferta_compra: Decimal | None
+    melhor_oferta_venda: Decimal | None
+    numero_negocios: int
+    volume: int
+    volume_financeiro: Decimal
+    fator_cotacao: int
+
+
 class LeitorCotahist:
     def ler_zip(self, conteudo: bytes, simbolos: set[str] | None = None) -> list[CandleB3]:
         """simbolos=None: universo amplo, sem filtro de simbolo - so BDI 02
@@ -183,6 +209,83 @@ class LeitorCotahist:
                     isin=isin,
                 )
             )
+        return resultado
+
+    def ler_mercados_zip(
+        self, conteudo: bytes, simbolos_por_isin: dict[str, str] | None = None,
+    ) -> list[NegocioMercadoB3]:
+        with zipfile.ZipFile(io.BytesIO(conteudo)) as pacote:
+            nomes = [nome for nome in pacote.namelist() if nome.upper().endswith(".TXT")]
+            if len(nomes) != 1:
+                raise ValueError(f"COTAHIST deve conter um TXT; encontrados: {len(nomes)}")
+            texto = pacote.read(nomes[0]).decode("latin-1")
+        return self.ler_mercados_linhas(texto.splitlines(), simbolos_por_isin)
+
+    def ler_mercados_linhas(
+        self, linhas: list[str], simbolos_por_isin: dict[str, str] | None = None,
+    ) -> list[NegocioMercadoB3]:
+        """Outros mercados, sem alterar a seleção de à vista/opções.
+
+        Base: ISIN compartilhado com o mercado 010 na mesma data (ou mapa
+        fornecido pelo chamador); fallback F/T só para fracionário/termo.
+        ISIN sozinho não codifica o ticker. PREEXE é centavos (189–201),
+        PTOEXE é pontos com seis decimais (218–230); não aplicar FATCOT.
+        """
+        registros = []
+        por_isin: dict[tuple[date, str], set[str]] = {}
+        for numero, linha in enumerate(linhas, 1):
+            if linha[:2] != TIPO_COTACAO:
+                continue
+            if len(linha) != TAMANHO_REGISTRO:
+                raise ValueError(
+                    f"Registro COTAHIST {numero} tem {len(linha)} caracteres; esperado 245"
+                )
+            mercado = linha[24:27]
+            if mercado not in {"010", "012", "013", "017", "020", "030"}:
+                continue
+            dia = datetime.strptime(linha[2:10], "%Y%m%d").date()
+            simbolo = linha[12:24].strip().upper()
+            isin = linha[230:242].strip() or None
+            if mercado == "010":
+                if isin:
+                    por_isin.setdefault((dia, isin), set()).add(simbolo)
+            else:
+                registros.append((linha, mercado, dia, simbolo, isin))
+        resultado = []
+        for linha, mercado, dia, simbolo, isin in registros:
+            base = (simbolos_por_isin or {}).get(isin) if isin else None
+            candidatos = por_isin.get((dia, isin), set()) if isin else set()
+            if base is None and len(candidatos) == 1:
+                base = next(iter(candidatos))
+            if base is None and (
+                (mercado == "020" and simbolo.endswith("F"))
+                or (mercado == "030" and simbolo.endswith("T"))
+            ):
+                base = simbolo[:-1]
+            fator = max(_inteiro(linha[210:217]), 1)
+            resultado.append(NegocioMercadoB3(
+                simbolo=simbolo, simbolo_base=base, mercado=mercado,
+                data_pregao=dia, isin=isin,
+                prazo_termo=int(linha[49:52]) if linha[49:52].strip() else None,
+                indice_correcao=linha[201:202].strip() or None,
+                numero_distribuicao=int(linha[242:245]) if linha[242:245].strip() else None,
+                preco_exercicio=_preco_ou_nulo(linha[188:201], 1),
+                preco_exercicio_pontos=(
+                    Decimal(_inteiro(linha[217:230])) / Decimal(1000000)
+                    if linha[217:230].strip() else None
+                ),
+                abertura=_preco(linha[56:69], fator),
+                maxima=_preco(linha[69:82], fator),
+                minima=_preco(linha[82:95], fator),
+                fechamento=_preco(linha[108:121], fator),
+                preco_medio=_preco_ou_nulo(linha[95:108], fator),
+                melhor_oferta_compra=_preco_ou_nulo(linha[121:134], fator),
+                melhor_oferta_venda=_preco_ou_nulo(linha[134:147], fator),
+                numero_negocios=_inteiro(linha[147:152]),
+                volume=_inteiro(linha[152:170]),
+                volume_financeiro=_decimal_centavos(linha[170:188]),
+                fator_cotacao=fator,
+            ))
         return resultado
 
     def ler_opcoes_zip(self, conteudo: bytes) -> list[OpcaoB3]:

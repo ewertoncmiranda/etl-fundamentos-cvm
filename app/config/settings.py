@@ -81,6 +81,7 @@ class Settings:
     fila_comunicados: str = "sqs-comunicados-publicados"
 
     cvm_base_url: str = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
+    cvm_fi_cda_base_url: str = "https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS"
     cvm_cache_dir: Path = Path("./cache")
     b3_base_url: str = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist"
     b3_cache_dir: Path = Path("./cache/b3")
@@ -128,6 +129,9 @@ class Settings:
             fila_comunicados=os.getenv("COMUNICADOS_QUEUE_NAME", "sqs-comunicados-publicados"),
             cvm_base_url=os.getenv(
                 "CVM_BASE_URL", "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
+            ),
+            cvm_fi_cda_base_url=os.getenv(
+                "CVM_FI_CDA_BASE_URL", "https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS"
             ),
             cvm_cache_dir=Path(
                 os.getenv("CVM_CACHE_DIR", "/var/cache/cvm" if em_conteiner else "./cache")
