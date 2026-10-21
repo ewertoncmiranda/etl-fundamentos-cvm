@@ -189,12 +189,22 @@ def montar_liquidez(settings: Settings, logger: Logger) -> CalcularLiquidez:
 
 
 def montar_prontidao(settings: Settings, logger: Logger):
-    """OPR-ETL-4/5: auditoria de ponto no tempo e prontidao do pregao, depois da liquidez."""
+    """OPR-ETL-4/5: auditoria e prontidao do pregao; apos SUCESSO dispara gerar-insights via SQS."""
     from app.aplicacao.prontidao_operacional import registrar_prontidao  # noqa: PLC0415
 
     banco = _montar_banco(settings, logger)
-    return lambda: registrar_prontidao(
-        UnidadeDeTrabalho(banco.fabrica_de_sessao), RepositorioExecucaoSql(logger), logger)
+    uow = UnidadeDeTrabalho(banco.fabrica_de_sessao)
+    publicador_series = _montar_publicador(settings, logger, settings.fila_series_historicas)
+    publicador_ativos = _montar_publicador(settings, logger, settings.fila_tratar_ativos)
+
+    def executar():
+        resultado = registrar_prontidao(uow, RepositorioExecucaoSql(logger), logger)
+        if resultado and resultado.pronto:
+            _publicar_series_historicas(uow, resultado.data_pregao, publicador_series, logger)
+            _publicar_cotacoes_ativos(uow, publicador_ativos, logger)
+        return resultado
+
+    return executar
 
 
 def montar_qualidade_opcoes(settings: Settings, logger: Logger):
@@ -240,6 +250,94 @@ def _montar_metricas_mercado(banco, logger: Logger) -> AtualizarMetricasMercado:
         calculadora=CalculadoraMultiplosMercado(),
         logger=logger,
     )
+
+
+def _publicar_cotacoes_ativos(uow, publicador, logger) -> None:
+    """Publica snapshots de fechamento em tratar-ativos para os ultimos 90 dias.
+
+    Cada (simbolo, data_pregao) vira uma mensagem no formato CTR-01 (ativos.schema.json).
+    O gerar-insights usa o regularMarketTime para identificar o pregao e avaliar sinais.
+    90 dias cobre a janela de avaliacao do gerar-insights e garante catchup de pregoes
+    que ficaram sem trigger apos a migracao para COTAHIST.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    try:
+        with uow.transacao() as db:
+            linhas = db.execute(text(
+                "SELECT c.simbolo, c.data_pregao, c.abertura, c.maxima, c.minima, "
+                "       c.fechamento, c.volume "
+                "FROM cotacao_b3_diaria c "
+                "JOIN ativo_monitorado m ON m.simbolo = c.simbolo "
+                "WHERE m.ativo = 1 AND c.fechamento IS NOT NULL "
+                "  AND c.data_pregao >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) "
+                "ORDER BY c.data_pregao, c.simbolo"
+            )).all()
+
+        candles = [
+            {
+                "simbolo": r.simbolo,
+                "data_pregao": r.data_pregao,
+                "abertura": r.abertura,
+                "maxima": r.maxima,
+                "minima": r.minima,
+                "fechamento": r.fechamento,
+                "volume": r.volume,
+            }
+            for r in linhas
+        ]
+
+        enviados = publicador.publicar_cotacoes_ativos(candles)
+        logger.info(
+            "Cotacoes publicadas em tratar-ativos: %d mensagem(ns) para %d ativo(s)",
+            enviados, len({c["simbolo"] for c in candles}),
+        )
+    except Exception as erro:
+        logger.error("Falha ao publicar cotacoes em tratar-ativos (dado ja persistido): %s", erro)
+
+
+def _publicar_series_historicas(uow, data_pregao, publicador, logger) -> None:
+    """Publica candles dos ativos monitorados em sqs-registrar-series-historicas (CTR-02).
+
+    Envia todos os pregoes disponiveis em cotacao_b3_diaria para cada ativo
+    monitorado ativo, um simbolo por mensagem. O gerar-insights faz upsert por
+    candle e ignora reentregas via dedup_key; enviar o historico completo garante
+    que pregoes passados sem trigger tambem sejam processados.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    try:
+        with uow.transacao() as db:
+            linhas = db.execute(text(
+                "SELECT c.simbolo, c.data_pregao, c.abertura, c.maxima, c.minima, "
+                "       c.fechamento, c.volume "
+                "FROM cotacao_b3_diaria c "
+                "JOIN ativo_monitorado m ON m.simbolo = c.simbolo "
+                "WHERE m.ativo = 1 AND c.fechamento IS NOT NULL "
+                "ORDER BY c.simbolo, c.data_pregao"
+            )).all()
+
+        por_simbolo: dict[str, list] = {}
+        for row in linhas:
+            por_simbolo.setdefault(row.simbolo, []).append({
+                "data_pregao": row.data_pregao,
+                "abertura": row.abertura,
+                "maxima": row.maxima,
+                "minima": row.minima,
+                "fechamento": row.fechamento,
+                "volume": row.volume,
+            })
+
+        for simbolo, candles in por_simbolo.items():
+            publicador.publicar_series_historicas(simbolo, candles)
+
+        logger.info(
+            "Series historicas publicadas para %d ativo(s) monitorados (pregao %s)",
+            len(por_simbolo), data_pregao,
+        )
+    except Exception as erro:
+        # Falha nao derruba a carga: dado ja esta no banco.
+        logger.error("Falha ao publicar series historicas (dado ja persistido): %s", erro)
 
 
 def _montar_banco(settings: Settings, logger: Logger) -> ConfiguracaoDeBanco:
