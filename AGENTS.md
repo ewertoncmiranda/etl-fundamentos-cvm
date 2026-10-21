@@ -2,6 +2,16 @@
 
 Instruções para agentes de código (Claude, Codex, outros). O plano e o backlog estão em `SPEC.md`; a coordenação entre repositórios, no hub `infra-b3-ecossytem/SPEC.md` (seção 1A).
 
+## Regra permanente de Git — UMA FEATURE, UMA BRANCH E VÁRIOS COMMITS (2026-10-21)
+
+Decisão expressa do usuário: **NUNCA MAIS CRIAR UMA BRANCH PARA CADA TAREFA. UMA FEATURE, UMA BRANCH E VÁRIOS COMMITS.**
+
+- Todas as tarefas, correções, testes e documentação da mesma feature usam a mesma branch por repositório e o mesmo PR.
+- Reutilizar a branch/worktree da feature. Não criar branches ou worktrees por item de backlog, tarefa, arquivo ou agente.
+- Separar entregas por commits, integrar os resultados e resolver conflitos nessa branch antes de publicar.
+- Paralelismo explicitamente autorizado exige coordenação dos arquivos e não autoriza ramificações por tarefa.
+- Esta decisão substitui orientações antigas de fragmentar a feature em branches/PRs por tarefa, inclusive no plano CONS e em documentos históricos.
+
 ## Start único deste repositório — serviço CARGA
 
 O container sobe `python -m app.servidor` como serviço interno do compose. `POST /cargas` aceita `ROTINA`, `COMPLETA` ou `PARCIAL`; a rotina da manhã e o gestor são clientes HTTP. O painel fala somente com o gestor. Nenhum consumidor chama o ETL por CLI nem acessa o banco diretamente. A liquidez continua como etapa da execução controlada e o histórico inicial se preenche sozinho.

@@ -549,17 +549,17 @@ Contrato físico autoritativo: `infra-b3-ecossytem/SPEC.md`, seção “Contrato
 
 ### Status de execução (2026-10-21)
 
-Resultado de cada tarefa executada: estado, branch e observação. Os testes de cada branch passam; falta a integração dos PRs (conflitos aditivos esperados em `ficha360Api.js` e `manifesto.js` no painel).
+Resultado de cada tarefa executada: estado, branch e observação. As entregas estão integradas em `feature-consolidacao-etl`, preservando os commits originais. Regra permanente: uma feature, uma branch e vários commits. Evidência em `docs/cons/CONSOLIDACAO-ETL.md`.
 
 | ID | Estado | Branch | Observação |
 |---|---|---|---|
-| FONTES-ETL-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | docs/fontes/FONTES-ETL-1.md |
-| FONTES-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-fontes-etl-2` | cadastro CVM; também copiado em feature-cons-fontes-etl-8 |
-| FONTES-ETL-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | VLMO |
-| FONTES-ETL-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | FRE: auditor e dívida; recompras pelo BPP, sem tabela |
-| FONTES-ETL-5 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | Tesouro; NTN-B de referência 6,79% em 15/10/2026 |
-| FONTES-ETL-6 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-fontes-etl-6` | IF.data; **não validado ao vivo**: o OData do BCB respondeu 500; alternativa em www3.bcb.gov.br/ifdata/rest/arquivos não implementada |
-| FONTES-ETL-7 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | CDA, só ações |
-| FONTES-ETL-8 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | partes 1 e 2: etapas TESOURO, CVM_VLMO, CVM_FRE, CVM_CDA, CVM_CADASTRO, IFDATA, datas ex (em EVENTOS) e mercados (em COTAHIST); docs/cons/FONTES-ETL-8a.md e 8b.md |
-| MICRO-ETL-1 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-etl-1` | o leitor não cobre a regra do primeiro pregão; aplicada na ligação do FONTES-ETL-8 |
-| MICRO-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-etl-2` | codbdi, especificação e data de vencimento ficam nulos na gravação |
+| FONTES-ETL-1 | IMPLEMENTADO (2026-10-21) | `feature-consolidacao-etl` | docs/fontes/FONTES-ETL-1.md |
+| FONTES-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-consolidacao-etl` | cadastro CVM; uma única implementação compartilhada com a etapa integrada |
+| FONTES-ETL-3 | IMPLEMENTADO (2026-10-21) | `feature-consolidacao-etl` | VLMO |
+| FONTES-ETL-4 | IMPLEMENTADO (2026-10-21) | `feature-consolidacao-etl` | FRE: auditor e dívida; recompras pelo BPP, sem tabela |
+| FONTES-ETL-5 | IMPLEMENTADO (2026-10-21) | `feature-consolidacao-etl` | Tesouro; NTN-B de referência 6,79% em 15/10/2026 |
+| FONTES-ETL-6 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-consolidacao-etl` | IF.data; **não validado ao vivo**: o OData do BCB respondeu 500; alternativa em www3.bcb.gov.br/ifdata/rest/arquivos não implementada |
+| FONTES-ETL-7 | IMPLEMENTADO (2026-10-21) | `feature-consolidacao-etl` | CDA, só ações |
+| FONTES-ETL-8 | IMPLEMENTADO (2026-10-21) | `feature-consolidacao-etl` | partes 1 e 2: etapas TESOURO, CVM_VLMO, CVM_FRE, CVM_CDA, CVM_CADASTRO, IFDATA, datas ex (em EVENTOS) e mercados (em COTAHIST); docs/cons/FONTES-ETL-8a.md e 8b.md |
+| MICRO-ETL-1 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-consolidacao-etl` | o leitor não cobre a regra do primeiro pregão; aplicada na ligação do FONTES-ETL-8 |
+| MICRO-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-consolidacao-etl` | codbdi, especificação e data de vencimento ficam nulos na gravação |
