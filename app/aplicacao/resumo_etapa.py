@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 
 
+ETAPAS_FONTES_PUBLICAS = frozenset(
+    {"TESOURO", "CVM_VLMO", "CVM_FRE", "CVM_CDA", "CVM_CADASTRO", "IFDATA"}
+)
+
+
 @dataclass(frozen=True)
 class ResumoEtapa:
     status: str
@@ -24,7 +29,9 @@ def resumir_etapa(etapa: str, resultado=None, erro: Exception | None = None) -> 
     status = "SUCESSO"
 
     if etapa == "COTAHIST":
-        erros = list(valores.get("erros_opcoes") or [])
+        erros = list(valores.get("erros_opcoes") or []) + list(
+            valores.get("erros_mercados") or []
+        )
         anos_processados = valores.get("anos_processados", [])
         candles = valores.get("candles_gravados", 0)
         por_ano = valores.get("candles_por_ano", {})
@@ -35,7 +42,14 @@ def resumir_etapa(etapa: str, resultado=None, erro: Exception | None = None) -> 
             erros.append("COTAHIST processou ano(s), mas gravou zero candles")
         if erros:
             status = "FALHA"
-        elif not anos_processados and valores.get("anos_pulados"):
+        elif valores.get("rejeicoes"):
+            status = "ALERTA"
+            alertas.append(
+                f"COTAHIST: {len(valores['rejeicoes'])} negocio(s) de outros mercados descartado(s)"
+            )
+        elif not anos_processados and valores.get("anos_pulados") and not valores.get(
+            "mercados_processados"
+        ):
             status = "SEM_MUDANCA"
     elif etapa in {"TTM", "DVA"}:
         processados = valores.get("anos_processados", [])
@@ -54,7 +68,17 @@ def resumir_etapa(etapa: str, resultado=None, erro: Exception | None = None) -> 
             status = "FALHA"
         elif valores.get("anos_pulados") and not valores.get("anos_processados"):
             status = "SEM_MUDANCA"
+    elif etapa in ETAPAS_FONTES_PUBLICAS:
+        status, alertas, erros = _status_fonte_publica(etapa, valores)
     elif etapa == "EVENTOS":
+        erros = list(valores.get("erros") or [])
+        if erros:
+            status = "FALHA"
+        elif valores.get("datas_ex_descartadas"):
+            status = "ALERTA"
+            alertas.append(
+                f"EVENTOS: {len(valores['datas_ex_descartadas'])} data(s) ex descartada(s)"
+            )
         rejeicoes = valores.get("rejeicoes", [])
         metricas = {
             "candidatos": valores.get("candidatos", 0),
@@ -62,6 +86,9 @@ def resumir_etapa(etapa: str, resultado=None, erro: Exception | None = None) -> 
             "rejeitados": len(rejeicoes),
             "rejeitados_por_motivo": _contar_motivos(rejeicoes),
         }
+        if "datas_ex_gravadas" in valores:
+            metricas["datas_ex_gravadas"] = valores["datas_ex_gravadas"]
+            metricas["datas_ex_descartadas"] = len(valores["datas_ex_descartadas"])
         return ResumoEtapa(status, metricas, alertas, erros)
     elif etapa == "CONCILIACAO":
         resumos_obj = getattr(resultado, "resumos", [])
@@ -109,6 +136,24 @@ def resumir_etapa(etapa: str, resultado=None, erro: Exception | None = None) -> 
     else:
         metricas = _metricas_comuns(valores)
     return ResumoEtapa(status, metricas, alertas, erros)
+
+
+def _status_fonte_publica(etapa: str, valores: dict) -> tuple[str, list[str], list[str]]:
+    """FALHA se houve erro de fonte; ALERTA se algum registro foi descartado;
+    SEM_MUDANCA se nada foi baixado porque o ETag nao mudou; senao SUCESSO."""
+    erros = list(valores.get("erros") or [])
+    if erros:
+        return "FALHA", [], erros
+    alertas = list(valores.get("alertas") or [])
+    descartados = len(valores.get("rejeicoes") or [])
+    if descartados:
+        motivos = _contar_motivos(valores["rejeicoes"])
+        alertas.append(f"{etapa}: {descartados} registro(s) descartado(s) {motivos}")
+    if alertas:
+        return "ALERTA", alertas, []
+    if not valores.get("itens_processados") and valores.get("itens_pulados"):
+        return "SEM_MUDANCA", [], []
+    return "SUCESSO", [], []
 
 
 def _valores(resultado) -> dict:

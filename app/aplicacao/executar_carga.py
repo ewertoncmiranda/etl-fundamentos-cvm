@@ -16,7 +16,8 @@ from app.aplicacao.resumo_etapa import resumir_etapa
 
 CATALOGO_ETAPAS = (
     "COTAHIST", "LIQUIDEZ", "PRONTIDAO", "QUALIDADE_OPCOES", "CONCILIACAO",
-    "DFP", "TTM", "IPE", "DVA", "EVENTOS", "CHECAGENS",
+    "DFP", "TTM", "IPE", "DVA", "TESOURO", "CVM_CADASTRO", "IFDATA", "CVM_VLMO", "CVM_FRE", "CVM_CDA",
+    "EVENTOS", "CHECAGENS",
 )
 ETAPAS_ROTINA = tuple(e for e in CATALOGO_ETAPAS if e != "EVENTOS")
 TIPOS = {"ROTINA", "COMPLETA", "PARCIAL"}
@@ -202,7 +203,8 @@ class OrquestradorCargas:
         hoje = date.today().year
         if pedido.tipo == "ROTINA":
             return {
-                etapa: sorted({hoje - 1, hoje}) if etapa in {"DFP", "IPE", "DVA"} else [hoje]
+                etapa: sorted({hoje - 1, hoje})
+                if etapa in {"DFP", "IPE", "DVA", "CVM_VLMO"} else [hoje]
                 for etapa in ETAPAS_ROTINA
             }
         if pedido.tipo == "PARCIAL":

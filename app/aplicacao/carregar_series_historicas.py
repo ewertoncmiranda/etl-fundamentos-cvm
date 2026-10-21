@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from logging import Logger
 
+from app.dominio.fontes_publicas import motivo_mercado
 from app.dominio.identidade import canonizar_opcoes, codigos_negociados
 from app.dominio.modelo import STATUS_PULADO, STATUS_SUCESSO
 from app.dominio.serie_historica import resumir_validacao_opcoes
@@ -13,6 +14,8 @@ from app.portas.repositorios import RepositorioExecucao, RepositorioOpcao, Repos
 
 FONTE_COTAHIST = "B3_COTAHIST"
 FONTE_COTAHIST_OPCOES = "B3_COTAHIST_OPCOES"
+FONTE_COTAHIST_MERCADOS = "B3_COTAHIST_MERCADOS"
+MERCADOS_DESDE = 2016
 JANELA_RECOMPOSICAO_OPCOES_ANOS = 5
 
 
@@ -24,6 +27,11 @@ class ResultadoSeries:
     candles_gravados: int = 0
     opcoes_gravadas: int = 0
     erros_opcoes: list[str] = field(default_factory=list)
+    mercados_gravados: int = 0
+    mercados_processados: list[int] = field(default_factory=list)
+    erros_mercados: list[str] = field(default_factory=list)
+    rejeicoes: list[dict] = field(default_factory=list)
+    mercados_recompostos: bool = False
 
 
 class CarregarSeriesHistoricas:
@@ -40,6 +48,8 @@ class CarregarSeriesHistoricas:
         nome_do_banco: str | None = None,
         fonte_opcoes: FonteDeOpcoes | None = None,
         repositorio_opcao: RepositorioOpcao | None = None,
+        fonte_mercados=None,
+        repositorio_mercados=None,
     ):
         self._fonte = fonte
         self._uow = unidade_de_trabalho
@@ -52,6 +62,8 @@ class CarregarSeriesHistoricas:
         self._nome_do_banco = nome_do_banco
         self._fonte_opcoes = fonte_opcoes
         self._opcao = repositorio_opcao
+        self._fonte_mercados = fonte_mercados
+        self._mercados = repositorio_mercados
 
     def executar(
         self,
@@ -147,7 +159,71 @@ class CarregarSeriesHistoricas:
                 sorted(anos_opcoes), assinaturas, forcar or precisa_recompor_opcoes,
                 precisa_recompor_opcoes, resultado,
             )
+        if self._fonte_mercados is not None and self._mercados is not None:
+            self._carregar_mercados(anos, assinaturas, forcar, ano_referencia, resultado)
         return resultado
+
+    def _carregar_mercados(
+        self,
+        anos: list[int],
+        assinaturas: dict[int, object],
+        forcar: bool,
+        ano_referencia: int,
+        resultado: ResultadoSeries,
+    ) -> None:
+        """Demais mercados (negociacao_b3_diaria) com trilha de ETag propria, no modelo
+        das opcoes. Tabela vazia recompoe desde MERCADOS_DESDE. Falha aqui nao desfaz
+        os candles: vira erro (FALHA) no resumo."""
+        with self._uow.transacao() as db:
+            vazia = self._mercados.contar_negociacoes_mercado(db) == 0
+        if vazia:
+            anos = list(range(MERCADOS_DESDE, ano_referencia + 1))
+            forcar = True
+            resultado.mercados_recompostos = True
+            self._logger.warning("COTAHIST mercados: tabela vazia; recompondo %d..%d",
+                                 anos[0], anos[-1])
+        for ano in sorted(set(anos)):
+            arquivo = f"COTAHIST_A{ano}.ZIP"
+            try:
+                assinatura = assinaturas.get(ano) or self._fonte.assinatura(ano)
+                with self._uow.transacao() as db:
+                    etag_anterior = self._execucao.etag_da_ultima_execucao(
+                        db, FONTE_COTAHIST_MERCADOS, str(ano), arquivo
+                    )
+                if not forcar and assinatura.inalterado_em_relacao_a(etag_anterior):
+                    self._logger.info("COTAHIST mercados %s: ETag inalterado; pulado", ano)
+                    continue
+                negocios = self._fonte_mercados.mercados(ano, usar_cache=ano < date.today().year)
+                boas = []
+                for n in negocios:
+                    motivo = motivo_mercado(n)
+                    if motivo is None:
+                        boas.append(n)
+                    else:
+                        resultado.rejeicoes.append({"motivo": motivo, "origem": f"mercados {ano}"})
+                with self._uow.transacao() as db:
+                    gravadas = self._mercados.salvar_negociacoes_mercado(db, boas)
+                    self._execucao.registrar(
+                        db, FONTE_COTAHIST_MERCADOS, str(ano), arquivo, STATUS_SUCESSO,
+                        etag=assinatura.etag, last_modified=assinatura.last_modified,
+                        tamanho_bytes=assinatura.tamanho_bytes, linhas_carregadas=gravadas,
+                    )
+                resultado.mercados_processados.append(ano)
+                resultado.mercados_gravados += gravadas
+                self._logger.info("COTAHIST mercados %s: %d gravados", ano, gravadas)
+            except Exception as erro:
+                mensagem = f"COTAHIST mercados {ano}: {erro}"
+                resultado.erros_mercados.append(mensagem)
+                self._logger.error("%s", mensagem, exc_info=True)
+                try:
+                    with self._uow.transacao() as db:
+                        self._execucao.registrar(
+                            db, FONTE_COTAHIST_MERCADOS, str(ano), arquivo, "ERRO",
+                            mensagem_erro=str(erro)[:1000],
+                        )
+                except Exception:
+                    self._logger.error("COTAHIST mercados %s: falha ao registrar erro", ano,
+                                       exc_info=True)
 
     def _carregar_opcoes(
         self,
