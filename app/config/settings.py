@@ -79,6 +79,8 @@ class Settings:
     aws_secret_access_key: str = "test"
     fila_fundamentos: str = "sqs-fundamentos-atualizados"
     fila_comunicados: str = "sqs-comunicados-publicados"
+    fila_series_historicas: str = "sqs-registrar-series-historicas"
+    fila_tratar_ativos: str = "tratar-ativos"
 
     cvm_base_url: str = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
     cvm_fi_cda_base_url: str = "https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS"
@@ -127,6 +129,10 @@ class Settings:
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "test"),
             fila_fundamentos=os.getenv("FUNDAMENTOS_QUEUE_NAME", "sqs-fundamentos-atualizados"),
             fila_comunicados=os.getenv("COMUNICADOS_QUEUE_NAME", "sqs-comunicados-publicados"),
+            fila_series_historicas=os.getenv(
+                "HISTORICAL_SERIES_QUEUE_NAME", "sqs-registrar-series-historicas"
+            ),
+            fila_tratar_ativos=os.getenv("QUEUE_NAME", "tratar-ativos"),
             cvm_base_url=os.getenv(
                 "CVM_BASE_URL", "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
             ),
