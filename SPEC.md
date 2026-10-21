@@ -506,7 +506,60 @@ Contrato físico autoritativo: `infra-b3-ecossytem/SPEC.md`, seção “Contrato
 
 | ID | Tarefa | Arquivos | Depende | Aceite | Status |
 |---|---|---|---|---|---|
-| CARGA-ETL-1 | Status confiável por etapa (sem `_sem_erro`) | `main.py`; novo `app/aplicacao/resumo_etapa.py`; `tests/aplicacao/test_resumo_etapa.py` | — | Cada `Resultado*` (`ResultadoSeries`, `ResultadoTtm`, `ResultadoProventos`, `ResultadoEventos`, `ResultadoDaCarga`, comunicados) vira `ResumoEtapa(status, metricas, alertas, erros)` pelas regras do hub; erro nas opções do COTAHIST e ano processado com 0 candles saem com código 1; TTM/DVA com 0 gravados geram alerta no log; tudo pulado por ETag é `SEM_MUDANCA`; testes cobrem sucesso, ETag igual, zero linhas, erro nas opções e exceção | PLANEJADO |
-| CARGA-ETL-2 | Orquestrador único e registro da carga | novo `app/aplicacao/executar_carga.py` (catálogo de etapas, `ROTINA`/`COMPLETA`/`PARCIAL`); repositório de `carga_execucao`/`carga_etapa`; `etl_execucao.carga_execucao_id`; `main.py` passa a usar o orquestrador | CARGA-ETL-1, CARGA-INFRA-1 | `_rotina` e `_carregar_tudo` viram configurações do mesmo orquestrador; cada etapa é gravada ao começar e ao terminar (dá para acompanhar em andamento); lock `GET_LOCK` impede duas cargas; ao iniciar, execução órfã `EXECUTANDO` vira `INTERROMPIDA`; métricas registram o que foi carregado (anos, lidos, gravados, rejeitados por motivo) | PLANEJADO |
-| CARGA-ETL-3 | API HTTP interna | novo `app/adaptadores/http/` (servidor mínimo e rotas); testes de contrato | CARGA-ETL-2, DEC-CARGA-1 | `POST /cargas` (202/409), `GET /cargas/{id}`, `GET /cargas`, `GET /cargas/ultimas`, `GET /saude` conforme o hub; carga roda em segundo plano e o POST responde na hora; token `ETL_TOKEN` quando definido | PLANEJADO |
-| CARGA-ETL-4 | O servidor vira o start único | novo `app/servidor.py` (executável como `python -m app.servidor`), `main.py`, `Dockerfile`, `AGENTS.md` | CARGA-ETL-3 | O compose já sobe `python -m app.servidor` na porta `ETL_HTTP_PORT` (8080) com `GET /saude` para o health check (CARGA-INFRA-2); o `ENTRYPOINT` da imagem também passa a ser o servidor; o argparse (`--rotina`, `--ano`, `--simbolo`, `--forcar`) sai e vira parâmetro do `POST /cargas`; `ETL_VERSAO` grava `versao_etl`; AGENTS atualizado com a nova entrada única | PLANEJADO |
+| CARGA-ETL-1 | Status confiável por etapa (sem `_sem_erro`) | `main.py`; novo `app/aplicacao/resumo_etapa.py`; `tests/aplicacao/test_resumo_etapa.py` | — | Cada `Resultado*` (`ResultadoSeries`, `ResultadoTtm`, `ResultadoProventos`, `ResultadoEventos`, `ResultadoDaCarga`, comunicados) vira `ResumoEtapa(status, metricas, alertas, erros)` pelas regras do hub; erro nas opções do COTAHIST e ano processado com 0 candles saem com código 1; TTM/DVA com 0 gravados geram alerta no log; tudo pulado por ETag é `SEM_MUDANCA`; testes cobrem sucesso, ETag igual, zero linhas, erro nas opções e exceção | IMPLEMENTADO (develop; ver docs/carga) |
+| CARGA-ETL-2 | Orquestrador único e registro da carga | novo `app/aplicacao/executar_carga.py` (catálogo de etapas, `ROTINA`/`COMPLETA`/`PARCIAL`); repositório de `carga_execucao`/`carga_etapa`; `etl_execucao.carga_execucao_id`; `main.py` passa a usar o orquestrador | CARGA-ETL-1, CARGA-INFRA-1 | `_rotina` e `_carregar_tudo` viram configurações do mesmo orquestrador; cada etapa é gravada ao começar e ao terminar (dá para acompanhar em andamento); lock `GET_LOCK` impede duas cargas; ao iniciar, execução órfã `EXECUTANDO` vira `INTERROMPIDA`; métricas registram o que foi carregado (anos, lidos, gravados, rejeitados por motivo) | IMPLEMENTADO (develop; ver docs/carga) |
+| CARGA-ETL-3 | API HTTP interna | novo `app/adaptadores/http/` (servidor mínimo e rotas); testes de contrato | CARGA-ETL-2, DEC-CARGA-1 | `POST /cargas` (202/409), `GET /cargas/{id}`, `GET /cargas`, `GET /cargas/ultimas`, `GET /saude` conforme o hub; carga roda em segundo plano e o POST responde na hora; token `ETL_TOKEN` quando definido | IMPLEMENTADO (develop; ver docs/carga) |
+| CARGA-ETL-4 | O servidor vira o start único | novo `app/servidor.py` (executável como `python -m app.servidor`), `main.py`, `Dockerfile`, `AGENTS.md` | CARGA-ETL-3 | O compose já sobe `python -m app.servidor` na porta `ETL_HTTP_PORT` (8080) com `GET /saude` para o health check (CARGA-INFRA-2); o `ENTRYPOINT` da imagem também passa a ser o servidor; o argparse (`--rotina`, `--ano`, `--simbolo`, `--forcar`) sai e vira parâmetro do `POST /cargas`; `ETL_VERSAO` grava `versao_etl`; AGENTS atualizado com a nova entrada única | IMPLEMENTADO (develop; ver docs/carga) |
+
+---
+
+## Plano consolidado CONS: MACRO + FONTES + MICRO enxuto, migration única (2026-10-20)
+
+**Status:** PLANEJADO · **Rótulos:** `FONTES-ETL-*`, `MICRO-ETL-*` · **Contrato, ondas e dependências entre serviços:** `infra-b3-ecossytem/SPEC.md`, Plano consolidado CONS. Escopo ETL. Fontes públicas sem cadastro nem chave. Uma única migration nova (V45, CONS-INFRA-1). Regra de independência: cada tarefa tem posse exclusiva dos arquivos listados; arquivos compartilhados têm um único dono.
+
+### Tarefas desta aplicação
+| ID | Tarefa | Arquivos (posse) | Depende | Aceite |
+|---|---|---|---|---|
+| **FONTES-ETL-1** | Inventário dos pacotes CVM | `docs/fontes/FONTES-ETL-1.md` | — **independente** | Tabelas do FRE e do VLMO e cabeçalhos de cadastro, CDA e FII registrados a partir dos arquivos reais. Fecha as colunas da V45 |
+| **FONTES-ETL-2** | Leitor do cadastro CVM | `app/adaptadores/cvm/cadastro.py`, testes | — **independente** | Lê `cad_cia_aberta.csv` e detecta troca de auditor |
+| **FONTES-ETL-3** | Leitor do VLMO | `app/adaptadores/cvm/vlmo.py`, testes | FONTES-ETL-1 | Lê `vlmo_cia_aberta_{ano}.zip` e soma compra líquida por cargo e mês |
+| **FONTES-ETL-4** | Leitor do FRE completo | `app/adaptadores/cvm/fre_estendido.py`, testes | FONTES-ETL-1 | Recompras e tesouraria, política de dividendos e dívida por vencimento |
+| **FONTES-ETL-5** | Leitor do Tesouro | `app/adaptadores/tesouro/`, testes | — **independente** | CSV aberto de preço e taxa do Tesouro Direto (URL confirmada na tarefa), com cache por ETag |
+| **FONTES-ETL-6** | Leitor do IF.data | `app/adaptadores/bcb/ifdata.py`, testes | — **independente** | OData do BCB, ligada ao ticker pelo CNPJ |
+| **FONTES-ETL-7** | Leitor do CDA (sem FII, DEC-FONTES-2) | `app/adaptadores/cvm/cda.py` | FONTES-ETL-1 | Só ações no CDA, 24 meses de histórico |
+| **MICRO-ETL-1** | Datas ex | `app/aplicacao/datas_ex.py`, testes | — **independente** (o leitor não toca no banco) | Classifica `marca_ex` e calcula o ajuste implícito a partir de `cotacao_b3_diaria` |
+| **MICRO-ETL-2** | Leitor de outros mercados | `leitor_cotahist.py`, só a função nova `ler_mercados_linhas` | — **independente** | Lê TPMERC 017/020/030/012/013. Os leitores de à vista e de opções ficam intactos |
+| **FONTES-ETL-8** | Repositórios e etapas no catálogo (dono único de `executar_carga.py`, `main.py` e `repositorios.py`) | esses três arquivos | CONS-INFRA-1, FONTES-ETL-2..7, MICRO-ETL-1..2 | Cada leitor vira uma etapa com `resumo_etapa`. A recomposição do histórico é automática quando a tabela está vazia (start único). Datas ex entram na etapa EVENTOS e mercados na COTAHIST |
+
+### Ondas de execução
+| Onda | Tarefas em paralelo, sem colisão | Por que podem rodar juntas |
+|---|---|---|
+| **0** | CONS-SPEC-1, FONTES-ETL-1, 2, 5, 6, MICRO-ETL-1, 2, MACRO-GES-1, 2, 4, MICRO-GES-1, MACRO-PAI-2, CONS-PAI-1 | Não tocam no banco nem em arquivo compartilhado |
+| **1** | **CONS-INFRA-1 (V45, execução única)**, FONTES-ETL-3, 4, 7, MACRO-GES-3, MICRO-PAI-1, MICRO-PAI-2 | A V45 só espera o inventário. Os leitores da onda 1 são arquivos próprios |
+| **2** | FONTES-ETL-8, CONS-INFRA-2 | O ETL-8 é o único que mexe no catálogo |
+| **3** | CONS-INFRA-3 (backfill), FONTES-GES-1..4, MICRO-GES-2 | Precisam das tabelas com dados |
+| **4** | MACRO-PAI-1/3 + FONTES-PAI-5, FONTES-PAI-1..4, MICRO-PAI-3 | Uma tarefa por arquivo |
+| **5** | MACRO-PAI-4 | Textos por último. O score pelo backtest saiu daqui: ver `SINAIS-INS-*` no gerar-insights |
+
+### Decisões em aberto
+- **DEC-FONTES-1 — APROVADA (2026-10-20):** bancos (setor do cadastro CVM) são avaliados por P/VP × ROE e Basileia (IF.data), não por Graham nem EV/EBITDA.
+- **DEC-FONTES-2 — DECIDIDA (2026-10-20): FIIs NÃO entram.** FONTES-ETL-7 lê só o CDA; `fii_informe_mensal` e a etapa `CVM_FII` saem da V45.
+- **DEC-FONTES-3:** a NTN-B de referência é o vencimento de cerca de 5 anos.
+- **DEC-MICRO-1:** o mapa das letras ex é validado no layout oficial da B3.
+
+### Status de execução (2026-10-21)
+
+Resultado de cada tarefa executada: estado, branch e observação. Os testes de cada branch passam; falta a integração dos PRs (conflitos aditivos esperados em `ficha360Api.js` e `manifesto.js` no painel).
+
+| ID | Estado | Branch | Observação |
+|---|---|---|---|
+| FONTES-ETL-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | docs/fontes/FONTES-ETL-1.md |
+| FONTES-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-fontes-etl-2` | cadastro CVM; também copiado em feature-cons-fontes-etl-8 |
+| FONTES-ETL-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | VLMO |
+| FONTES-ETL-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | FRE: auditor e dívida; recompras pelo BPP, sem tabela |
+| FONTES-ETL-5 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | Tesouro; NTN-B de referência 6,79% em 15/10/2026 |
+| FONTES-ETL-6 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-fontes-etl-6` | IF.data; **não validado ao vivo**: o OData do BCB respondeu 500; alternativa em www3.bcb.gov.br/ifdata/rest/arquivos não implementada |
+| FONTES-ETL-7 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | CDA, só ações |
+| FONTES-ETL-8 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | partes 1 e 2: etapas TESOURO, CVM_VLMO, CVM_FRE, CVM_CDA, CVM_CADASTRO, IFDATA, datas ex (em EVENTOS) e mercados (em COTAHIST); docs/cons/FONTES-ETL-8a.md e 8b.md |
+| MICRO-ETL-1 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-etl-1` | o leitor não cobre a regra do primeiro pregão; aplicada na ligação do FONTES-ETL-8 |
+| MICRO-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-etl-2` | codbdi, especificação e data de vencimento ficam nulos na gravação |
